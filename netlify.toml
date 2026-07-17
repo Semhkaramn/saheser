@@ -1,0 +1,53 @@
+[images]
+  remote_images = ["https://source.unsplash.com/.*", "https://images.unsplash.com/.*", "https://ext.same-assets.com/.*", "https://ugc.same-assets.com/.*"]
+
+[build]
+  command = "prisma db push --accept-data-loss && prisma generate && bun run db:seed && bun run build"
+  publish = ".next"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NETLIFY_USE_BLOBS = "false"
+  NETLIFY_BLOBS_CONTEXT = "false"
+
+[functions]
+  # Force Node.js runtime (not Edge) for scheduled functions
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client", "@prisma/adapter-neon", "@neondatabase/serverless", "ws"]
+  included_files = ["node_modules/.prisma/**", "node_modules/@prisma/client/**"]
+
+# Explicitly set all scheduled functions to use Node.js runtime
+[functions."cleanup-sessions"]
+  runtime = "nodejs20.x"
+
+[functions."daily-leaderboard"]
+  runtime = "nodejs20.x"
+
+[functions."db-warmup"]
+  runtime = "nodejs20.x"
+
+[functions."event-auto-check"]
+  runtime = "nodejs20.x"
+
+[functions."task-reset"]
+  runtime = "nodejs20.x"
+
+[functions."telegram-queue-processor"]
+  runtime = "nodejs20.x"
+
+[functions."ticket-auto-check"]
+  runtime = "nodejs20.x"
+
+[functions."wheel-reset-notification"]
+  runtime = "nodejs20.x"
+
+[functions."auto-tag-cron"]
+  runtime = "nodejs20.x"
+
+[functions."weekly-rewards-cron"]
+  runtime = "nodejs20.x"
+
+# Scheduled Functions Plugin
+[[plugins]]
+  package = "@netlify/plugin-functions-install-core"

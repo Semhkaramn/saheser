@@ -1,0 +1,1308 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"] // ✅ Neon.tech serverless adapter için gerekli
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Sistem ayarları (Sadece bildirimler ve dinamik ayarlar için)
+// NOT: Bot token, çark ayarları, puan/XP ayarları .env dosyasındadır
+// ========== BOT ADMIN PANELİ (DM ÜZERİNDEN YÖNETİM) ==========
+// Botun eklendiği gruplar - dinamik olarak my_chat_member event'inde kaydedilir
+model TelegramGroup {
+  id            String   @id @default(cuid())
+  groupId       String   @unique // Telegram grup ID'si (-100...)
+  title         String?
+  chatType      String   @default("group") // "group" | "channel" - randy-web'deki gibi menüde ayrım için
+  isActive      Boolean  @default(true) // Bot hala grupta mı?
+  addedBy       String?  // Botu ekleyen adminin telegram ID'si
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// Bot ile DM üzerinden admin panel akışını yöneten oturum (kullanıcı başına tek satır)
+model BotAdminSession {
+  id                String    @id @default(cuid())
+  telegramId        String    @unique // Panelle konuşan adminin telegram ID'si
+  groupId           String?   // Üzerinde işlem yapılan grup ID'si
+  mode              String?   // null | awaiting_broadcast | awaiting_randy_message | awaiting_randy_number
+  draftTitle        String?   @db.Text // Randy taslak mesajı (winnerCount sorulmadan önce tutulur)
+  draftMessage      String?   @db.Text
+  draftMessageEntitiesJson String? @db.Text // Yakalanan mesajın entities dizisi (premium emoji, kalın/italik vb. korumak için)
+  draftDataJson     String?   @db.Text // Çok adımlı sihirbazlar için serbest JSON veri (Randy gelişmiş ayarları vb.)
+  menuChatId        String?   // Son menü mesajının chat ID'si (yerinde güncellemek için)
+  menuMessageId     String?   // Son menü mesajının message ID'si
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// ========== KLASİK ÇEKİLİŞ (Randy'den ayrı, basit sistem) ==========
+// Belirlenen süre içinde rastgele "kazanma anları" üretilir; o ana denk
+// gelen ilk mesajı atan kişi ödülü kazanır.
+model ClassicGiveawaySettings {
+  id                    String   @id @default(cuid())
+  groupId               String   @unique
+  defaultDurationHours  Int      @default(24)
+  defaultWinnerCount    Int      @default(1)
+  maxWinsPerUser        Int?
+  pinAnnouncement       Boolean  @default(true)
+  pinWinnerMessage      Boolean  @default(true)
+  updatedAt             DateTime @updatedAt
+}
+
+model ClassicGiveaway {
+  id                     String    @id @default(cuid())
+  groupId                String
+  creatorTelegramId      String
+  prizeText              String   @db.Text
+  winnerCount            Int
+  maxWinsPerUser         Int?
+  pinAnnouncement        Boolean  @default(true)
+  pinWinnerMessage       Boolean  @default(true)
+  status                 String   @default("active") // active | ended | cancelled
+  announcementMessageId  String?
+  startedAt              DateTime @default(now())
+  endsAt                 DateTime
+  endedAt                DateTime?
+
+  winTimes ClassicGiveawayWinTime[]
+
+  @@index([groupId, status])
+}
+
+model ClassicGiveawayWinTime {
+  id                String          @id @default(cuid())
+  giveawayId        String
+  giveaway          ClassicGiveaway @relation(fields: [giveawayId], references: [id], onDelete: Cascade)
+  winTime           DateTime
+  slotNumber        Int
+  isWon             Boolean         @default(false)
+  winnerTelegramId  String?
+  winnerUsername    String?
+  winnerFirstName   String?
+  wonAt             DateTime?
+
+  @@index([giveawayId])
+}
+
+model ClassicGiveawayUserWin {
+  id         String   @id @default(cuid())
+  groupId    String
+  telegramId String
+  winCount   Int      @default(1)
+  lastWinAt  DateTime
+
+  @@unique([groupId, telegramId])
+}
+
+// ========== AKTİFLİK ÖDÜLLERİ (manuel başlat/durdur yarışması) ==========
+model ActivityContestSettings {
+  id           String    @id @default(cuid())
+  groupId      String    @unique
+  isRunning    Boolean   @default(false)
+  topCount     Int       @default(20)
+  minCharCount Int       @default(10)
+  startedAt    DateTime?
+  endedAt      DateTime?
+  updatedAt    DateTime  @updatedAt
+}
+
+model ActivityContestReward {
+  id         String   @id @default(cuid())
+  groupId    String
+  rank       Int
+  rewardText String
+
+  @@unique([groupId, rank])
+}
+
+model ActivityContestParticipant {
+  id           String   @id @default(cuid())
+  groupId      String
+  telegramId   String
+  username     String?
+  firstName    String?
+  messageCount Int      @default(0)
+
+  @@unique([groupId, telegramId])
+  @@index([groupId, messageCount])
+}
+
+// ========== HAFTALIK ÖDÜLLER (her Pazar otomatik duyuru) ==========
+model WeeklyRewardSettings {
+  id             String   @id @default(cuid())
+  groupId        String   @unique
+  enabled        Boolean  @default(false)
+  topCount       Int      @default(3)
+  autoPostSunday Boolean  @default(false)
+  autoPin        Boolean  @default(false)
+  postHour       Int      @default(20) // Türkiye saatine göre
+  updatedAt      DateTime @updatedAt
+}
+
+model WeeklyReward {
+  id         String   @id @default(cuid())
+  groupId    String
+  rank       Int
+  rewardText String
+
+  @@unique([groupId, rank])
+}
+
+// ========== GPT SOHBET (grup içinde rastgele kişilikli cevap) ==========
+model GptSettings {
+  id          String  @id @default(cuid())
+  groupId     String  @unique
+  enabled     Boolean @default(false)
+  triggerWord String  @default("harley") // Mesajda bu kelime geçerse GPT cevap verir
+}
+
+// ========== BOT AYARLARI (hangi modüller açık, genel toggle listesi) ==========
+model BotSystemSetting {
+  id      String  @id @default(cuid())
+  key     String  @unique // 'classic_giveaway' | 'randy' | 'roll' | 'auto_tag' | 'weekly_rewards' | 'activity_rewards' | 'gpt' | 'cross_ban'
+  enabled Boolean @default(true)
+}
+
+// ========== BOT MESAJ ŞABLONLARI (Admin panelden düzenlenebilir) ==========
+// Her satır bir mesaj metnini geçersiz kılar. Kayıt yoksa kod içindeki
+// varsayılan metin kullanılır (src/lib/message-templates.ts).
+// ========== KISA LİNK SİSTEMİ ==========
+// Sponsor/banner linklerini tek bir kısa adres (site.com/slug) üzerinden
+// yönetmeyi ve tıklanma istatistiği tutmayı sağlar.
+model ShortLink {
+  id         String   @id @default(cuid())
+  slug       String   @unique
+  targetUrl  String
+  title      String?
+  clickCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  clicks ShortLinkClick[]
+}
+
+model ShortLinkClick {
+  id          String   @id @default(cuid())
+  shortLinkId String
+  clickedAt   DateTime @default(now())
+  referrer    String?
+  userAgent   String?
+
+  shortLink ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+
+  @@index([shortLinkId, clickedAt])
+}
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  content     String   @db.Text
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+}
+
+model Settings {
+  id                    String   @id @default(cuid())
+  key                   String   @unique
+  value                 String
+  description           String?
+  category              String   @default("general")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([category])
+  @@index([key])
+}
+
+// Kullanıcı modeli
+// Kayıt olmadan ÖNCE email doğrulama - hesap henüz yokken kod gönderip
+// doğrulamak için. Hesap oluşturulmadan terk edilen denemeler yüzünden
+// "yarım kalmış" User kaydı oluşmasın diye ayrı, bağımsız bir tablo.
+model PendingEmailVerification {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  code      String
+  verified  Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id               String          @id @default(cuid())
+
+  // Email/Password Authentication
+  email            String?         @unique
+  password         String?         // Hashed password (bcrypt)
+  emailVerified    Boolean         @default(false)
+  emailVerificationToken String?   @unique
+  emailVerificationTokenExpiry DateTime?
+  passwordResetToken String?       @unique
+  passwordResetTokenExpiry DateTime?
+
+  // Site kullanıcı adı (kayıt sırasında girilir)
+  siteUsername     String?         @unique
+
+  // Telegram Authentication (optional)
+  telegramId       String?         @unique
+  telegramUsername String?         // Telegram username - RENAMED from 'username'
+  firstName        String?         // Telegram'dan çekilir
+  lastName         String?         // Telegram'dan çekilir
+  avatar           String?         // User selected avatar
+
+  // Gameplay
+  points           Int             @default(0)
+  xp               Int             @default(0)
+  rankId           String?
+  rank             Rank?           @relation(fields: [rankId], references: [id])
+  dailySpinsLeft   Int             @default(1)
+  lastSpinReset    DateTime        @default(now())
+
+  // ✅ Çark Serisi (ardışık gün çevirme - Task sistemi ile entegre)
+  weeklyWheelStreak    Int         @default(0)  // Kaç gün seri çevrildi
+  lastWheelSpinDate    DateTime?   // Son çark çevirme tarihi (gün kontrolü için)
+  // NOT: weeklyWheelBonusClaimed artık kullanılmıyor - ödüller UserTaskReward tablosunda takip ediliyor
+  weeklyWheelBonusClaimed Boolean  @default(false) // DEPRECATED - geriye uyumluluk için
+
+  // ℹ️ NOT: messageCount ve lastMessageAt artık TelegramGroupUser tablosunda
+  // ℹ️ NOT: loginMethod kaldırıldı - email/password varsa email auth, telegramId varsa telegram auth
+  // ℹ️ NOT: hadStart kaldırıldı - TelegramGroupUser'da zaten var
+
+  // Ban sistemi
+  isBanned         Boolean         @default(false)
+  banReason        String?
+  bannedAt         DateTime?
+  bannedBy         String?         // Admin kullanıcı adı
+
+  // TRC20 USDT Cüzdan
+  trc20WalletAddress String?       // TRC20 USDT cüzdan adresi
+
+  // Telegram bağlantı token'ı (geçici - 10 dakika)
+  telegramConnectionToken String?  // 6 haneli kod
+  telegramConnectionTokenExpiry DateTime? // Token süresi
+
+  // Telegram bağlantı koparma
+  telegramUnlinkedAt DateTime?    // Son bağlantı koparma tarihi
+
+  // İlk Telegram bağlantısı yapıldı mı? (Sadece ilk bağlantıda puan/mesaj birleşmesi yapılır)
+  hasHadFirstTelegramLink Boolean @default(false)
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  purchases        UserPurchase[]
+  wheelSpins       WheelSpin[]
+  pointHistory     PointHistory[]
+  sponsorInfos     UserSponsorInfo[] // Kullanıcının sponsor bilgileri
+  telegramGroupUser TelegramGroupUser? // Telegram grup kullanıcısı bağlantısı
+  ticketRequests   TicketRequest[] // Kullanıcının bilet talepleri
+  ticketNumbers    TicketNumber[]  @relation("UserTicketNumbers") // Kullanıcının bilet numaraları
+  eventParticipations EventParticipant[] // Kullanıcının etkinlik katılımları
+  eventWins        EventWinner[] // Kullanıcının kazandığı etkinlikler
+  taskRewards      UserTaskReward[] // Kullanıcının aldığı görev ödülleri
+
+  @@index([email])
+  @@index([siteUsername])
+  @@index([telegramId])
+  @@index([isBanned])
+  @@index([points, xp]) // ✅ OPTIMIZASYON: Leaderboard sorguları için composite index
+  @@index([xp, points]) // ✅ OPTIMIZASYON: XP leaderboard için composite index
+  @@index([telegramId, isBanned]) // ✅ OPTIMIZASYON: Telegram webhook ban kontrolü için
+}
+
+// Rütbe sistemi
+model Rank {
+  id               String          @id @default(cuid())
+  name             String          @unique
+  minXp            Int             @unique
+  icon             String          @default("⭐")
+  color            String          @default("#FFD700")
+  order            Int             @default(0)
+  pointsReward     Int             @default(0)  // Bu rütbeye ulaşıldığında verilecek puan ödülü
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  users            User[]
+
+  @@index([minXp])
+}
+
+// Market ürünleri
+model ShopItem {
+  id               String          @id @default(cuid())
+  name             String          @unique
+  slug             String?         @unique // URL'de görünen isim (örn. "vip-rozet") - name'den otomatik üretilir
+  description      String?
+  price            Int             // Puan cinsinden
+  imageUrl         String?
+  imagePublicId    String?         // Cloudinary public ID - resim silinirken kullanılacak
+  category         String          @default("Genel")
+  stock            Int?            // null = sınırsız
+  purchaseLimit    Int?            // Her kullanıcı kaç kez satın alabilir (null = sınırsız)
+  isActive         Boolean         @default(true)
+  order            Int             @default(0)
+
+  // Sponsor kategorisi için sponsor seçimi
+  sponsorId        String?         // Sponsor kategorisi için hangi sponsor
+  sponsor          Sponsor?        @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
+  requireApprovedSponsor Boolean   @default(false) // Açıksa: sadece sponsor bilgisi ONAYLANMIŞ kullanıcılar satın alabilir
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  purchases        UserPurchase[]
+
+  @@index([isActive, category])
+  @@index([sponsorId])
+}
+
+// Kullanıcı satın alımları
+model UserPurchase {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId           String
+  item             ShopItem        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  pointsSpent      Int
+  status           String          @default("pending") // pending, processing, completed, cancelled
+  deliveryInfo     String?         // Teslimat bilgileri, notlar
+  processedBy      String?         // İşlemi yapan admin
+  processedAt      DateTime?       // İşlenme tarihi
+
+  // Nakit kategorisi için cüzdan bilgisi
+  walletAddress    String?         // TRC20 USDT cüzdan adresi
+
+  // Sponsor kategorisi için sponsor bilgisi
+  sponsorInfo      String?         // Kullanıcının sponsor bilgisi (username, id veya email)
+
+  // Bot üzerinden onay akışı
+  telegramChatId      String?      // Onay kartının gönderildiği grup
+  telegramMessageId   String?      // Onay kartının mesaj ID'si
+  decidedByTelegramId String?      // Kararı veren adminin telegram ID'si
+
+  purchasedAt      DateTime        @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@index([purchasedAt])
+  @@index([userId, itemId]) // ✅ OPTIMIZASYON: Purchase limit kontrolü için composite index
+}
+
+// Çark ödülleri
+model WheelPrize {
+  id               String          @id @default(cuid())
+  name             String          @unique
+  points           Int
+  probability      Float           @default(1.0) // Çıkma olasılığı (1.0 = eşit)
+  color            String          @default("#FF6B6B")
+  isActive         Boolean         @default(true)
+  order            Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  wheelSpins       WheelSpin[]
+
+  @@index([isActive])
+}
+
+// Çark çevirme geçmişi
+model WheelSpin {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prizeId          String
+  prize            WheelPrize      @relation(fields: [prizeId], references: [id], onDelete: Cascade)
+  pointsWon        Int
+  spunAt           DateTime        @default(now())
+
+  @@index([userId])
+}
+
+// Puan geçmişi
+model PointHistory {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount           Int             // Pozitif = kazanç, Negatif = kayıp
+  type             String          // "admin_add", "admin_remove", "wheel_win", "shop_purchase", "message_reward" vs
+  description      String          // Detaylı açıklama
+  relatedId        String?         // İlgili kaydın ID'si (wheelSpinId, purchaseId vs)
+  adminUsername    String?         // İşlemi yapan admin (varsa)
+  balanceBefore    Int?            // İşlem öncesi bakiye
+  balanceAfter     Int?            // İşlem sonrası bakiye
+  createdAt        DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+}
+
+// Sponsorlar
+model Sponsor {
+  id               String          @id @default(cuid())
+  name             String
+  description      String?
+  logoUrl          String?
+  logoPublicId     String?         // Cloudinary public ID - resim silinirken kullanılacak
+  websiteUrl       String?
+  category         String          @default("normal") // "vip" veya "normal"
+
+  // Kullanıcıdan hangi bilgiyi isteyeceğiz
+  identifierType   String          @default("username") // "username", "id" veya "email"
+
+  isActive         Boolean         @default(true)
+  showInBanner     Boolean         @default(true) // Banner'da gösterilsin mi?
+  order            Int             @default(0)
+  clicks           Int             @default(0)
+
+  // Bot üzerinden onay akışı - kullanıcı bilgi girince bu Telegram grubuna onay kartı gönderilir
+  approvalGroupId  String?         // Onay mesajlarının gönderileceği Telegram grup ID'si
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  shopItems        ShopItem[]      // Bu sponsora bağlı ürünler
+  userInfos        UserSponsorInfo[] // Kullanıcıların bu sponsor için kaydettiği bilgiler
+  ticketEvents     TicketEvent[]   @relation("TicketEventSponsor") // Bu sponsora ait bilet etkinlikleri
+  events           Event[]         @relation("EventSponsor") // Bu sponsora ait etkinlikler
+  promotions       Promotion[]     // Bu sponsora bağlı deneme bonusu/promosyon kayıtları
+
+  @@index([isActive])
+  @@index([category])
+  @@index([showInBanner])
+}
+
+// Görevler
+model Task {
+  id               String          @id @default(cuid())
+  title            String
+  description      String?
+
+  // Görev kategorisi: "daily" (günlük), "weekly" (haftalık), "streak" (seri), "permanent" (kalıcı)
+  category         String          @default("daily")
+
+  // Görev tipi: "send_messages" (mesaj gönder), "spin_wheel" (çark çevir)
+  taskType         String          @default("send_messages")
+
+  // Hedef değer (örn: 5 mesaj, 3 çark)
+  targetValue      Int             @default(1)
+
+  // Ödüller
+  xpReward         Int             @default(0)
+  pointsReward     Int             @default(0)
+
+  // Durum
+  isActive         Boolean         @default(true)
+  order            Int             @default(0)
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  rewards          UserTaskReward[]
+
+  @@index([category, isActive])
+  @@index([taskType])
+}
+
+// ✅ Kullanıcı görev ödül geçmişi - TÜM GEÇMİŞ SAKLANIR
+// NOT: Unique constraint KALDIRILDI - aynı görev birden fazla kez tamamlanabilir
+// Periyod bazlı kontrol claimedAt tarihine göre yapılır
+model UserTaskReward {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId           String
+  task             Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  // Ödül alındığı zaman (periyod kontrolü için)
+  claimedAt        DateTime        @default(now())
+
+  // Ödül detayları (geçmiş için)
+  pointsEarned     Int             @default(0)
+  xpEarned         Int             @default(0)
+
+  // NOT: @@unique([userId, taskId]) KALDIRILDI - tüm geçmiş saklanıyor
+  @@index([userId])
+  @@index([taskId])
+  @@index([claimedAt])
+  @@index([userId, taskId]) // Hızlı sorgular için composite index
+  @@index([userId, taskId, claimedAt]) // Periyod bazlı kontrol için
+}
+
+// Kullanıcıların sponsor bilgileri
+model UserSponsorInfo {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sponsorId        String
+  sponsor          Sponsor         @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+
+  // Kullanıcının bu sponsor için kaydettiği bilgi
+  identifier       String          // username, id veya email değeri
+
+  // Bot üzerinden onay akışı
+  status              String       @default("pending") // pending, approved, rejected
+  telegramChatId      String?      // Onay kartının gönderildiği grup
+  telegramMessageId   String?      // Onay kartının mesaj ID'si
+  decidedByTelegramId String?      // Kararı veren adminin telegram ID'si
+  decidedAt           DateTime?
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @default(now())
+
+  @@unique([userId, sponsorId]) // Her kullanıcı her sponsor için bir bilgi kaydedebilir
+  @@index([userId])
+  @@index([sponsorId])
+}
+
+// Admin kullanıcılar
+model Admin {
+  id               String          @id @default(cuid())
+  username         String          @unique
+  passwordHash     String
+  telegramId       String?         @unique
+  isSuperAdmin     Boolean         @default(false) // Ana admin mi?
+
+  // Sayfa bazlı yetkiler (Dashboard her admin için otomatik aktif)
+  canAccessUsers        Boolean     @default(false)
+  canAccessTasks        Boolean     @default(false)
+  canAccessShop         Boolean     @default(false)
+  canAccessWheel        Boolean     @default(false)
+  canAccessSponsors     Boolean     @default(false)
+  canAccessAds          Boolean     @default(false)
+  canAccessRanks        Boolean     @default(false)
+  canAccessSettings     Boolean     @default(false)
+  canAccessAdmins       Boolean     @default(false)
+  canAccessTickets      Boolean     @default(false)
+  canAccessEvents       Boolean     @default(false)
+  canAccessPromocodes   Boolean     @default(false)
+  canAccessActivityLogs Boolean     @default(false)
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([username])
+  @@index([isSuperAdmin])
+}
+
+// Admin sessions (JWT)
+model AdminSession {
+  id               String          @id @default(cuid())
+  adminId          String
+  token            String          @unique
+  expiresAt        DateTime
+  createdAt        DateTime        @default(now())
+
+  @@index([adminId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// Günlük site istatistikleri - Sayaç bazlı (hafif ve verimli)
+model DailyStats {
+  id               String   @id @default(cuid())
+  date             DateTime @unique @db.Date // Sadece tarih (gün)
+
+  // Toplam ziyaret sayaçları
+  totalVisits      Int      @default(0)
+  uniqueVisitors   Int      @default(0) // Günlük benzersiz ziyaretçi sayısı
+
+  // Sayfa bazlı ziyaret sayaçları
+  homeVisits       Int      @default(0)
+  shopVisits       Int      @default(0)
+  wheelVisits      Int      @default(0)
+  tasksVisits      Int      @default(0)
+  eventsVisits     Int      @default(0)
+  leaderboardVisits Int     @default(0)
+  profileVisits    Int      @default(0)
+  ticketsVisits    Int      @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([date])
+}
+
+// Telegram Grup Kullanıcıları - Grupta mesaj yazan herkes (siteye kayıtlı olmasalar bile)
+model TelegramGroupUser {
+  id               String          @id @default(cuid())
+  telegramId       String          @unique // Telegram kullanıcı ID
+  username         String?         // Telegram username
+  firstName        String?         // Telegram first name
+  lastName         String?         // Telegram last name
+
+  // Site bağlantısı
+  linkedUserId     String?         @unique // Bağlı site kullanıcısı (null = siteye kayıtlı değil)
+  linkedUser       User?           @relation(fields: [linkedUserId], references: [id], onDelete: SetNull)
+
+  // Bot başlatma durumu (siteye kayıtlı olmasa bile)
+  hadStart         Boolean         @default(false) // Kullanıcı bota /start yaptı mı?
+
+  // İstatistikler - Tüm tarihler Türkiye saatine (UTC+3) göre
+  messageCount           Int       @default(0) // Toplam mesaj sayısı (tüm zamanlar)
+  dailyMessageCount      Int       @default(0) // Bugünkü mesaj sayısı (Türkiye saatine göre)
+  weeklyMessageCount     Int       @default(0) // Bu haftaki mesaj sayısı (Türkiye saatine göre)
+  monthlyMessageCount    Int       @default(0) // Bu ayki mesaj sayısı (Türkiye saatine göre)
+
+  lastMessageAt          DateTime? // Son mesaj zamanı (UTC - Türkiye saatine çevrilecek)
+  lastDailyReset         DateTime  @default(now()) // Son günlük sıfırlama (Türkiye saati)
+  lastWeeklyReset        DateTime  @default(now()) // Son haftalık sıfırlama (Türkiye saati)
+  lastMonthlyReset       DateTime  @default(now()) // Son aylık sıfırlama (Türkiye saati)
+
+  firstSeenAt            DateTime  @default(now()) // İlk görülme zamanı
+
+  // Etiketleme (Tagging) sistemi için
+  lastGroupId            String?   // En son mesaj attığı grup ID'si
+  isTaggable             Boolean   @default(true) // Etiketleme dışı bırakıldı mı?
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([telegramId])
+  @@index([linkedUserId])
+  @@index([messageCount])
+  @@index([lastMessageAt])
+  @@index([hadStart])
+  @@index([dailyMessageCount])
+  @@index([weeklyMessageCount])
+  @@index([monthlyMessageCount])
+  @@index([lastGroupId])
+}
+
+// Bir grup için otomatik/manuel etiketleme ayarları
+model TaggingSettings {
+  id              String    @id @default(cuid())
+  groupId         String    @unique
+  enabled         Boolean   @default(false) // Otomatik etiketleme aktif mi? (CRON ile)
+  intervalMinutes Int       @default(60)
+  tagMessage      String    @default("🎉 Selamlar!") @db.Text
+  lastTaggedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// Devam eden/biten etiketleme koşusunun ilerleme durumu (bir grupta aynı anda bir tane)
+model TaggingRun {
+  id         String    @id @default(cuid())
+  groupId    String    @unique
+  status     String    @default("running") // running | stopped | completed
+  sent       Int       @default(0)
+  total      Int       @default(0)
+  startedAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ========== ÇAPRAZ BAN SİSTEMİ ==========
+// Bir gruptan banlanan kullanıcı, bağlı diğer gruplardan da otomatik banlanır
+model CrossBanSettings {
+  id        String   @id @default(cuid())
+  groupId   String   @unique
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Çapraz ban ağına elle eklenmiş, gruba ek kanallar (bot admin olmasa da hedef olabilir)
+model CrossBanChannel {
+  id        Int      @id @default(autoincrement())
+  channelId String   @unique
+  title     String?
+  username  String?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model CrossBanLog {
+  id             String   @id @default(cuid())
+  sourceGroupId  String   // Banın/unban'ın uygulandığı ilk grup
+  telegramId     String   // Etkilenen kullanıcı
+  username       String?
+  firstName      String?
+  action         String   @default("ban") // "ban" | "unban"
+  targetCount    Int      @default(0) // Deneme yapılan hedef sayısı
+  successCount   Int      @default(0) // Başarılı hedef sayısı
+  createdAt      DateTime @default(now())
+
+  @@index([telegramId])
+  @@index([sourceGroupId])
+}
+
+// Sosyal Medya Bağlantıları
+model SocialMedia {
+  id               String          @id @default(cuid())
+  name             String          // Gösterilecek isim
+  platform         String          // telegram, instagram, twitter, youtube, discord, tiktok, facebook
+  username         String          // Kullanıcı adı veya link
+  isActive         Boolean         @default(true)
+  order            Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([isActive, order])
+}
+
+// Bilet Etkinlikleri
+model TicketEvent {
+  id               String          @id @default(cuid())
+  title            String          // Ana başlık
+  slug             String?         @unique // URL'de görünen isim (örn. "yaz-cekilisi") - title'dan otomatik üretilir
+  description      String?         // Açıklama
+  imageUrl         String?         // Bilet görseli (2:1 yatay oranda)
+  imagePublicId    String?         // Cloudinary public ID - resim silinirken kullanılacak
+  sponsorId        String
+  sponsor          Sponsor         @relation("TicketEventSponsor", fields: [sponsorId], references: [id], onDelete: Cascade)
+  totalTickets     Int?            // Toplam bilet sayısı - boşsa sınırsız (sabit bir sayı duyurulmaz)
+  requireApprovedSponsor Boolean   @default(false) // Açıksa: sadece sponsor bilgisi ONAYLANMIŞ kullanıcılar katılabilir
+  ticketPrice      Float           // Bilet fiyatı (TL)
+  endDate          DateTime?       // Bitiş tarihi - boşsa süresiz (sadece bilet biterse ya da admin elle bitirirse sona erer)
+  status           String          @default("active") // "active", "completed", "cancelled"
+
+  // İstatistikler
+  soldTickets      Int             @default(0) // Satılan bilet sayısı
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  completedAt      DateTime?       // Tamamlanma tarihi
+
+  prizes           TicketEventPrize[]
+  requests         TicketRequest[]
+  ticketNumbers    TicketNumber[]
+
+  @@index([status])
+  @@index([sponsorId])
+  @@index([endDate])
+}
+
+// Bilet Etkinliği Ödülleri
+model TicketEventPrize {
+  id               String          @id @default(cuid())
+  eventId          String
+  event            TicketEvent     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  prizeAmount      Float           // Ödül miktarı (TL)
+  winnerCount      Int             // Kazanan sayısı
+  order            Int             @default(0)
+  createdAt        DateTime        @default(now())
+
+  winners          TicketPrizeWinner[]
+
+  @@index([eventId])
+}
+
+// Bilet Ödül Kazananları
+model TicketPrizeWinner {
+  id               String          @id @default(cuid())
+  prizeId          String
+  prize            TicketEventPrize @relation(fields: [prizeId], references: [id], onDelete: Cascade)
+  ticketNumberId   String
+  ticketNumber     TicketNumber    @relation(fields: [ticketNumberId], references: [id], onDelete: Cascade)
+  userId           String
+  createdAt        DateTime        @default(now())
+
+  @@index([prizeId])
+  @@index([ticketNumberId])
+  @@index([userId])
+}
+
+// Bilet Talepleri
+model TicketRequest {
+  id               String          @id @default(cuid())
+  eventId          String
+  event            TicketEvent     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sponsorInfo      String          // Sponsor kullanıcı bilgisi
+  investmentAmount Float           // Yatırım tutarı (TL)
+  investmentDate   DateTime        // Yatırım tarihi (kullanıcı girişi)
+  note             String?         // Kullanıcının eklediği not (opsiyonel)
+  status           String          @default("pending") // "pending", "approved", "rejected"
+
+  // İşlem bilgileri
+  processedBy      String?         // İşlemi yapan admin
+  processedAt      DateTime?       // İşlenme tarihi
+  rejectionReason  String?         // Red nedeni
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  ticketNumbers    TicketNumber[]
+
+  @@index([eventId])
+  @@index([userId])
+  @@index([status])
+}
+
+// Bilet Numaraları
+model TicketNumber {
+  id               String          @id @default(cuid())
+  eventId          String
+  event            TicketEvent     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  requestId        String
+  request          TicketRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation("UserTicketNumbers", fields: [userId], references: [id], onDelete: Cascade)
+  ticketNumber     Int             // Bilet numarası
+  createdAt        DateTime        @default(now())
+
+  prizeWins        TicketPrizeWinner[]
+
+  @@unique([eventId, ticketNumber]) // Her etkinlikte her numara bir kez
+  @@index([eventId])
+  @@index([requestId])
+  @@index([userId])
+}
+
+// ========== ROLL SİSTEMİ - DATABASE TABLI (SUNUCU RESTART'A DAYANIKLI) ==========
+
+// Roll Oturumu - Her grup için bir roll oturumu
+model RollSession {
+  id               String          @id @default(cuid())
+  groupId          String          @unique // Telegram grup ID
+  status           String          @default("stopped") // 'active' | 'paused' | 'stopped' | 'break' | 'locked'
+  activeDuration   Int             @default(2) // Dakika cinsinden timeout süresi
+  currentStep      Int             @default(0) // Mevcut adım numarası
+  previousStatus   String?         // Mola öncesi durum ('active' | 'paused' | 'locked')
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  steps            RollStep[]
+
+  @@index([groupId])
+  @@index([status])
+}
+
+// Roll Adımları - Her adım kaydedilir
+model RollStep {
+  id               String          @id @default(cuid())
+  sessionId        String
+  session          RollSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  stepNumber       Int             // Adım numarası (1, 2, 3...)
+  isActive         Boolean         @default(false) // Bu adım aktif mi? (Her zaman max 1 adım aktif)
+  createdAt        DateTime        @default(now())
+
+  users            RollStepUser[]
+
+  @@unique([sessionId, stepNumber])
+  @@index([sessionId])
+  @@index([sessionId, isActive]) // Aktif adımı hızlı bulmak için
+}
+
+// Roll Adım Kullanıcıları - Her adımdaki kullanıcılar
+model RollStepUser {
+  id               String          @id @default(cuid())
+  stepId           String
+  step             RollStep        @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  telegramUserId   String          // Telegram kullanıcı ID
+  name             String          // Gösterilecek isim (@username veya firstName)
+  messageCount     Int             @default(1) // Bu adımda kaç mesaj attı
+  lastActive       DateTime        @default(now()) // Son mesaj zamanı
+
+  @@unique([stepId, telegramUserId])
+  @@index([stepId])
+  @@index([telegramUserId])
+}
+
+// ========== ETKİNLİK SİSTEMİ ==========
+
+// Etkinlikler
+model Event {
+  id               String          @id @default(cuid())
+  title            String          // Ana başlık
+  slug             String?         @unique // URL'de görünen isim (örn. "yaz-etkinligi") - title'dan otomatik üretilir
+  description      String?         // Açıklama/Ayrıntı
+  imageUrl         String?         // Etkinlik görseli (Cloudinary URL)
+  imagePublicId    String?         // Cloudinary public ID (resim silinirken kullanılacak)
+  sponsorId        String
+  sponsor          Sponsor         @relation("EventSponsor", fields: [sponsorId], references: [id], onDelete: Cascade)
+  requireApprovedSponsor Boolean   @default(false) // Açıksa: sadece sponsor bilgisi ONAYLANMIŞ kullanıcılar katılabilir
+
+  // Etkinlik ayarları
+  participantLimit Int             // Kaç kişilik
+  participationType String         @default("limited") // "limited" (sadece limit kadar) veya "raffle" (çekiliş)
+
+  // Tarihler
+  endDate          DateTime?       // Bitiş tarihi - boşsa süresiz (Kazanan sayısı/Herkes tiplerinde geçerli; admin elle bitirir)
+  status           String          @default("active") // "active", "pending", "completed"
+
+  // İstatistikler
+  participantCount Int             @default(0) // Katılımcı sayısı
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  completedAt      DateTime?       // Tamamlanma tarihi
+
+  participants     EventParticipant[]
+  winners          EventWinner[]
+
+  @@index([status])
+  @@index([sponsorId])
+  @@index([endDate])
+}
+
+// Etkinlik Katılımcıları
+model EventParticipant {
+  id               String          @id @default(cuid())
+  eventId          String
+  event            Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sponsorInfo      String          // Kullanıcının sponsor için kaydettiği bilgi
+
+  createdAt        DateTime        @default(now())
+
+  @@unique([eventId, userId]) // Her kullanıcı bir etkinliğe bir kez katılabilir
+  @@index([eventId])
+  @@index([userId])
+}
+
+// Etkinlik Kazananları
+model EventWinner {
+  id               String          @id @default(cuid())
+  eventId          String
+  event            Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Kazananın durumu
+  status           String          @default("prize_added") // "prize_added", "no_investment", "no_bonus", "multi", "last_transaction", "active_balance", "different_btag"
+  statusMessage    String          @default("Ödülünüz eklendi") // Kullanıcıya gösterilecek mesaj
+
+  // İlk mesaj gönderildi mi? (Kazandığında gönderilen "Kontrol ediliyor" mesajı)
+  messageSent      Boolean         @default(false)
+  messageSentAt    DateTime?
+
+  // Sonuç mesajı gönderildi mi? (Admin tamamladığında gönderilen son durum mesajı)
+  resultMessageSent   Boolean      @default(false)
+  resultMessageSentAt DateTime?
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([eventId, userId]) // Her kullanıcı bir etkinlikte bir kez kazanabilir
+  @@index([eventId])
+  @@index([userId])
+  @@index([status])
+}
+
+
+// Randy Çekiliş Sistemi
+// ========== RANDY GRUP VARSAYILANLARI (randy-web mantığı) ==========
+// Bot DM'inden ya da web panelinden BİR KEZ ayarlanır: duyuru mesajı, şart
+// tipi, kazanan sayısı, puan, zorunlu kanallar. Grupta "/randy" yazınca bu
+// varsayılanlarla Randy ANINDA başlar - admin hiçbir şey yeniden yazmaz.
+// "/number 5" sadece kazanan sayısını değiştirmek için kullanılır.
+model RandyGroupDefaults {
+  id                   String   @id @default(cuid())
+  groupId              String   @unique
+  message              String?  @db.Text
+  messageEntitiesJson  String?  @db.Text // Premium emoji/biçimlendirme korumak için
+  requirementType      String   @default("none")
+  requiredMessageCount Int?
+  winnerCount          Int?
+  pointsReward         Int?
+  pointsOnly           Boolean  @default(false) // Açıksa: ödül SADECE puan, fiziksel/harici ödül yok
+  updatedAt            DateTime @updatedAt
+}
+
+model RandyGroupDefaultChannel {
+  id              String @id @default(cuid())
+  groupId         String
+  channelId       String
+  channelUsername String?
+  channelTitle    String?
+
+  @@unique([groupId, channelId])
+}
+
+model Randy {
+  id                    String          @id @default(cuid())
+
+  // Temel Bilgiler
+  title                 String          // Randy başlığı
+  message               String          @db.Text // Randy mesajı (HTML destekli)
+  messageEntitiesJson   String?         @db.Text // Premium emoji/biçimlendirme korumak için
+  targetGroupId         String          // Randy'nin açılacağı grup ID'si
+
+  // Katılım Şartı
+  requirementType       String          // "none", "message_count", "post_randy_messages"
+
+  // Mesaj Şartı için (requirementType = "message_count")
+  messageCountPeriod    String?         // "daily", "weekly", "monthly", "all_time"
+  messageCountRequired  Int?            // Gerekli mesaj sayısı
+
+  // Randy Sonrası Mesaj Şartı için (requirementType = "post_randy_messages")
+  postRandyMessages     Int?            // Randy başladıktan sonra kaç mesaj gerekli
+
+  // Kanal Üyelik Kontrolü
+  requireChannelMembership Boolean      @default(false) // Kanal üyelik kontrolü aktif mi?
+  membershipCheckChannelIds String?     @db.Text // Kontrol edilecek kanal ID'leri (virgülle ayrılmış: "-1001234567,-1009876543")
+
+  // Kazanan Sayısı ve Ödüller
+  winnerCount           Int             @default(1) // Kaç kazanan çekilecek
+  prizePoints           Int             @default(0) // Kazananlara verilecek puan (0 = puan yok)
+  pointsOnly            Boolean         @default(false) // Açıksa: ödül SADECE puan, fiziksel/harici ödül yok - kazanan mesajı "destekle iletişime geç" demez
+
+  // Ayarlar
+  pinMessage            Boolean         @default(false) // Mesaj sabitleme
+
+  // Durum
+  status                String          @default("draft") // "draft", "active", "ended"
+  messageId             Int?            // Telegram mesaj ID'si (sabitleme için)
+
+  // Katılımcılar ve Kazananlar
+  participants          RandyParticipant[]
+  winners               RandyWinner[]
+
+  // Tarihler
+  startedAt             DateTime?       // Randy başlama zamanı
+  endedAt               DateTime?       // Randy bitiş zamanı
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@index([status])
+  @@index([startedAt])
+}
+
+// Randy Katılımcıları
+model RandyParticipant {
+  id               String          @id @default(cuid())
+  randyId          String
+  randy            Randy           @relation(fields: [randyId], references: [id], onDelete: Cascade)
+
+  telegramId       String          // Telegram kullanıcı ID
+  username         String?         // Telegram username
+  firstName        String?         // Telegram first name
+  lastName         String?         // Telegram last name
+
+  // Randy sonrası mesaj sayısı (requirementType = "post_randy_messages" için)
+  postRandyMessageCount Int         @default(0)
+
+  joinedAt         DateTime        @default(now())
+
+  @@unique([randyId, telegramId]) // Her kullanıcı bir Randy'ye bir kez katılabilir
+  @@index([randyId])
+  @@index([telegramId])
+}
+
+// Randy Kazananları
+model RandyWinner {
+  id               String          @id @default(cuid())
+  randyId          String
+  randy            Randy           @relation(fields: [randyId], references: [id], onDelete: Cascade)
+
+  telegramId       String          // Telegram kullanıcı ID
+  username         String?         // Telegram username
+  firstName        String?         // Telegram first name
+  lastName         String?         // Telegram last name
+
+  // Puan ekleme durumu
+  pointsAwarded    Int             @default(0) // Eklenen puan miktarı
+  hasLinkedUser    Boolean         @default(false) // Site üyeliği var mı?
+  linkedUserId     String?         // Site kullanıcı ID'si (varsa)
+
+  wonAt            DateTime        @default(now())
+
+  @@index([randyId])
+  @@index([telegramId])
+}
+
+// ========== PROMOCODE SİSTEMİ ==========
+
+// Promosyon Kodları
+model Promocode {
+  id               String          @id @default(cuid())
+  code             String          @unique // Promocode kodu
+  description      String?         // Açıklama
+  points           Int             // Verilecek puan miktarı
+  maxUses          Int             // Maksimum kullanım sayısı
+  usedCount        Int             @default(0) // Kullanılma sayısı
+  isActive         Boolean         @default(true)
+  expiresAt        DateTime?       // Son kullanım tarihi (null = süresiz)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  createdBy        String?         // Oluşturan admin username
+
+  usages           PromocodeUsage[]
+
+  @@index([code])
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+// Promocode Kullanım Geçmişi
+model PromocodeUsage {
+  id               String          @id @default(cuid())
+  promocodeId      String
+  promocode        Promocode       @relation(fields: [promocodeId], references: [id], onDelete: Cascade)
+  userId           String
+  pointsEarned     Int             // Kazanılan puan
+  usedAt           DateTime        @default(now())
+
+  @@unique([promocodeId, userId]) // Her kullanıcı her kodu bir kez kullanabilir
+  @@index([promocodeId])
+  @@index([userId])
+  @@index([usedAt])
+}
+
+// ========== KULLANICI AKTİVİTE LOG SİSTEMİ ==========
+// Her kullanıcı aksiyonu kalıcı olarak kaydedilir ve ASLA silinmez
+
+model UserActivityLog {
+  id               String          @id @default(cuid())
+  userId           String          // Aksiyon yapan kullanıcı
+
+  // Aksiyon tipi
+  actionType       String          // "wallet_add", "wallet_update", "wallet_delete", "sponsor_add", "sponsor_update", "sponsor_delete",
+                                   // "event_join", "ticket_request", "wheel_spin", "task_complete", "purchase", "promocode_use",
+                                   // "telegram_link", "telegram_unlink", "register", "password_change", "avatar_change"
+
+  // Aksiyon detayları
+  actionTitle      String          // Kısa açıklama
+  actionDescription String?        // Detaylı açıklama
+
+  // Eski ve yeni değerler (değişiklik takibi için)
+  oldValue         String?         // Eski değer (JSON formatında olabilir)
+  newValue         String?         // Yeni değer (JSON formatında olabilir)
+
+  // İlişkili kayıt bilgileri
+  relatedId        String?         // İlgili kaydın ID'si (sponsorId, eventId, vs.)
+  relatedType      String?         // İlgili kayıt tipi ("sponsor", "event", "purchase", vs.)
+
+  // Metadata (ek bilgiler - JSON)
+  metadata         String?         @db.Text
+
+  // IP ve cihaz bilgisi (güvenlik için)
+  ipAddress        String?
+  userAgent        String?
+
+  // Tarih - Türkiye saati
+  createdAt        DateTime        @default(now())
+
+  @@index([userId])
+  @@index([actionType])
+  @@index([createdAt])
+  @@index([userId, actionType])
+  @@index([userId, createdAt])
+}
+
+// ========== BROADCAST GEÇMİŞİ ==========
+
+// Toplu Mesaj Geçmişi
+model BroadcastHistory {
+  id               String          @id @default(cuid())
+
+  // Mesaj içeriği
+  message          String          @db.Text // Mesaj metni
+  imageUrl         String?         // Görsel URL
+  buttons          String?         @db.Text // JSON formatında butonlar
+
+  // Hedef bilgisi
+  sendToAll        Boolean         @default(true) // Tüm kullanıcılara mı?
+  targetUserCount  Int             @default(0) // Hedef kullanıcı sayısı
+
+  // Sonuç istatistikleri
+  status           String          @default("pending") // "pending", "processing", "completed", "failed"
+  queuedCount      Int             @default(0) // Kuyruğa eklenen mesaj sayısı
+  sentCount        Int             @default(0) // Başarıyla gönderilen
+  failedCount      Int             @default(0) // Başarısız olan
+
+  // İşlem bilgileri
+  batchId          String?         @unique // Kuyruk batch ID
+  adminId          String?         // Gönderen admin ID
+  adminUsername    String?         // Gönderen admin kullanıcı adı
+
+  // Hata bilgisi
+  errorMessage     String?         // Hata mesajı (varsa)
+
+  // Tarihler
+  startedAt        DateTime?       // İşlem başlama zamanı
+  completedAt      DateTime?       // İşlem tamamlanma zamanı
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  // İlişkiler
+  recipients       BroadcastRecipient[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([batchId])
+}
+
+// Broadcast Alıcıları - Her mesajın her alıcısını takip eder
+model BroadcastRecipient {
+  id               String          @id @default(cuid())
+  broadcastId      String
+  broadcast        BroadcastHistory @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  // Alıcı bilgileri
+  telegramId       String          // Telegram kullanıcı ID
+  telegramUsername String?         // Telegram username (@olmadan)
+  firstName        String?         // Telegram isim
+  siteUsername     String?         // Site kullanıcı adı
+
+  // Gönderim durumu
+  status           String          @default("pending") // "pending", "sent", "failed", "skipped"
+
+  // Hata bilgisi
+  errorCode        String?         // Telegram hata kodu (örn: "403", "400")
+  errorMessage     String?         // Hata mesajı detayı
+
+  // Neden gönderilmedi/başarısız oldu
+  failureReason    String?         // "blocked_bot", "user_deactivated", "chat_not_found", "no_telegram_id", "banned_user", "no_hadstart"
+
+  // Kişiselleştirilmiş mesaj
+  personalizedMessage String?      @db.Text // Kullanıcıya özel gönderilen mesaj
+
+  // Tarihler
+  sentAt           DateTime?       // Gönderim zamanı
+  createdAt        DateTime        @default(now())
+
+  @@index([broadcastId])
+  @@index([telegramId])
+  @@index([status])
+  @@index([broadcastId, status]) // Broadcast detayı için filtreleme
+}
+
+// ─── Deneme Bonusları & Promosyonlar ──────────────────────────
+// İki ayrı menü/sekme (type ile ayrılıyor) ama aynı yapı: liste sayfasında
+// logo+isim+Detay butonu, detay sayfasında yüklenmiş fotoğraf+açıklama+giriş
+// butonu (sponsorun linkine gider).
+model Promotion {
+  id            String   @id @default(cuid())
+  type          String   // "trial_bonus" (Deneme Bonusları) | "promotion" (Promosyonlar)
+  name          String
+  slug          String?  // URL'de görünen isim (örn. "deneme-bonusu-kayip") - name'den otomatik üretilir
+  sponsorId     String?  // Logo buradan gelir - ayrı logo yüklemeye gerek yok
+  sponsor       Sponsor? @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  photoUrl      String?  // Detay sayfasında gösterilen büyük fotoğraf
+  photoPublicId String?
+  description   String?  @db.Text
+  isActive      Boolean  @default(true)
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  groups        PromotionGroup[] @relation("PromotionToGroup") // Bir promosyon birden fazla gruba eklenebilir (örn. "Kayıp Bonusu" + "Yeni Üye")
+
+  @@unique([type, slug])
+  @@index([type, isActive, order])
+}
+
+// Admin'in kendi oluşturduğu, üye sayfasında filtre/sekme olarak görünen
+// gruplar (örn. "Kayıp Bonusu", "Yeni Üye Özel"). type'a göre ayrı ayrı
+// yönetilir çünkü Deneme Bonusları ve Promosyonlar zaten ayrı sekmeler.
+model PromotionGroup {
+  id         String      @id @default(cuid())
+  type       String      // "trial_bonus" | "promotion"
+  name       String
+  order      Int         @default(0)
+  createdAt  DateTime    @default(now())
+
+  promotions Promotion[] @relation("PromotionToGroup")
+
+  @@index([type, order])
+}

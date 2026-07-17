@@ -1,0 +1,21 @@
+/* ============================================ */
+/* ADMIN THEME - Admin-specific Styles */
+/* ============================================ */
+
+:root {
+  /* Admin Theme Variables */
+  --admin-bg: 222 47% 5%;          /* slate-950 - Ana arka plan (siyaha yakın) */
+  --admin-container: 215 28% 12%;   /* slate-900 - Container/Kart arka planı */
+  --admin-card: 215 25% 15%;        /* slate-800 - Kartlar */
+  --admin-table-bg: 215 25% 15%;    /* slate-800 - Tablo arka planı */
+  --admin-border: 215 20% 25%;      /* slate-700 - Border */
+  --admin-text: 210 20% 98%;        /* gray-50 - Ana metin */
+  --admin-text-secondary: 214 32% 91%; /* gray-200 - İkincil metin */
+  --admin-text-muted: 215 20% 65%;  /* gray-400 - Soluk metin */
+  --admin-input-bg: 217 33% 17%;    /* slate-800/900 arası */
+  --admin-input-border: 215 20% 30%; /* slate-600 */
+  --admin-hover: 215 25% 20%;       /* Hover state */
+}
+
+/* Admin utility classes will use Tailwind from globals.css */
+/* These custom styles extend the admin theme */
