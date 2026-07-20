@@ -152,7 +152,7 @@ export default function AdminSponsorsPage() {
     loadSponsors()
     // Sponsor formundaki "Website URL" (kısa link seç) ve "Onay Grubu" (bot
     // gruplarından seç) alanları için gerekli listeler
-    fetch('/api/admin/groups').then((r) => r.json()).then((d) => setBotGroups((d.groups || []).filter((g: any) => g.isActive))).catch(() => {})
+    fetch('/api/admin/groups?includeSponsorGroups=true').then((r) => r.json()).then((d) => setBotGroups((d.groups || []).filter((g: any) => g.isActive))).catch(() => {})
     fetch('/api/admin/short-links').then((r) => r.json()).then((d) => setShortLinks(d.links || [])).catch(() => {})
   }, [])
 

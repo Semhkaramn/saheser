@@ -314,7 +314,7 @@ async function handleRandyJoin(query: any, userId: string, randyId: string) {
         baslik: randy.title,
         aciklama_blok: aciklamaBlok,
         katilimciSayisi: participantCount,
-        odul: randy.prizePoints,
+        odul_blok: randy.prizePoints > 0 ? ` | 🎁 ${randy.prizePoints} puan` : '',
         kazananSayisi: randy.winnerCount,
       })
 

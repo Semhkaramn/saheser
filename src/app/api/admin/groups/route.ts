@@ -7,6 +7,9 @@ export async function GET(request: NextRequest) {
   if (authCheck.error) return authCheck.error
 
   try {
+    const { searchParams } = new URL(request.url)
+    const includeSponsorGroups = searchParams.get('includeSponsorGroups') === 'true'
+
     const [groups, sponsorApprovalGroups] = await Promise.all([
       prisma.telegramGroup.findMany({ orderBy: { createdAt: 'desc' } }),
       prisma.sponsor.findMany({ where: { approvalGroupId: { not: null } }, select: { approvalGroupId: true } }),
@@ -14,9 +17,11 @@ export async function GET(request: NextRequest) {
 
     // Sponsor onay kartlarının gönderildiği gruplar, Gruplar/Randy gibi genel
     // yönetim listelerinde gösterilmiyor - bunlar tek amaçlı onay grupları,
-    // topluluk yönetimi için değil.
-    const sponsorGroupIds = new Set(sponsorApprovalGroups.map((s) => s.approvalGroupId))
-    const visibleGroups = groups.filter((g) => !sponsorGroupIds.has(g.groupId))
+    // topluluk yönetimi için değil. AMA sponsor düzenleme formunun kendisi
+    // (includeSponsorGroups=true) bu filtreyi atlıyor - yoksa bir sponsöre
+    // ZATEN atanmış grup, o sponsörü düzenlerken bile "bulunamadı" görünürdü.
+    const sponsorGroupIds = new Set(sponsorApprovalGroups.map((s: { approvalGroupId: string | null }) => s.approvalGroupId))
+    const visibleGroups = includeSponsorGroups ? groups : groups.filter((g: { groupId: string }) => !sponsorGroupIds.has(g.groupId))
 
     const groupsWithCounts = await Promise.all(
       visibleGroups.map(async (g) => {
