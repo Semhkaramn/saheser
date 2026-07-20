@@ -176,6 +176,23 @@ async function handleRandyJoin(query: any, userId: string, randyId: string) {
       }
     }
 
+    // Website üyelik kontrolü - bota /start yapmak yetmez, siteye kayıtlı ve
+    // Telegram hesabı bağlı olmak gerekiyor.
+    if (randy.requireWebsiteMembership) {
+      const groupUser = await prisma.telegramGroupUser.findUnique({
+        where: { telegramId: userId },
+        select: { linkedUserId: true },
+      })
+      if (!groupUser?.linkedUserId) {
+        await answerCallbackQuery(
+          query.id,
+          '🌐 Katılmak için önce web sitemize üye olman gerekiyor.',
+          true
+        )
+        return NextResponse.json({ ok: true })
+      }
+    }
+
     // Mesaj şartı kontrolü (message_count)
     if (randy.requirementType === 'message_count') {
       const telegramUser = await prisma.telegramGroupUser.findUnique({

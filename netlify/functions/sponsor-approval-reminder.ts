@@ -81,24 +81,19 @@ async function sendApprovalCard(
 }
 
 /**
- * Cron Job: Her 6 saatte bir çalışır (00:00, 06:00, 12:00, 18:00 UTC)
- * 6 saatten uzun süredir yanıt bekleyen sponsor onay kayıtlarını bulur,
- * eski mesajı siler, yenisini gönderir - admin grubunda unutulmasın diye.
+ * Cron Job: Her SAAT çalışır, ama sadece 6 saatten uzun süredir yanıt
+ * bekleyenleri hatırlatır. (6 saatte bir kontrol etmek yeterli değildi -
+ * bir kayıt kontrol noktasından hemen sonra "pending" olursa, bir sonraki
+ * kontrole kadar neredeyse 12 saat geçebiliyordu. Saatlik kontrolle bu en
+ * kötü durumda ~7 saate iniyor.)
  */
-const handler = schedule('0 */6 * * *', async () => {
+const handler = schedule('0 * * * *', async () => {
   const prisma = getPrisma()
 
   try {
     const cutoff = new Date(Date.now() - REMINDER_AFTER_MS)
 
-    const pending: Array<{
-      id: string
-      identifier: string
-      telegramChatId: string | null
-      telegramMessageId: string | null
-      sponsor: { name: string; identifierType: string }
-      user: { siteUsername: string | null; telegramUsername: string | null }
-    }> = await withTimeout(
+    const pending = await withTimeout(
       prisma.userSponsorInfo.findMany({
         where: {
           status: 'pending',

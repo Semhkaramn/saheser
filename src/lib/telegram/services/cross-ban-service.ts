@@ -44,8 +44,22 @@ async function getCrossBanNetworkGroups(excludeGroupId: string) {
   return nonSponsorGroups.filter((g) => !disabledSet.has(g.groupId))
 }
 
+async function getSponsorApprovalGroupIds(): Promise<Set<string>> {
+  const sponsors = await prisma.sponsor.findMany({
+    where: { approvalGroupId: { not: null } },
+    select: { approvalGroupId: true },
+  })
+  return new Set(sponsors.map((s: { approvalGroupId: string | null }) => s.approvalGroupId))
+}
+
 export async function listCrossBanChannels() {
-  return prisma.crossBanChannel.findMany({ orderBy: { createdAt: 'desc' } })
+  const [channels, sponsorGroupIds] = await Promise.all([
+    prisma.crossBanChannel.findMany({ orderBy: { createdAt: 'desc' } }),
+    getSponsorApprovalGroupIds(),
+  ])
+  // Manuel eklenmiş bir kanal, sonradan bir sponsörün onay grubu olarak
+  // atandıysa artık burada da görünmemeli.
+  return channels.filter((c: { channelId: string }) => !sponsorGroupIds.has(c.channelId))
 }
 
 export async function addCrossBanChannel(channelId: string, title?: string | null, username?: string | null) {
@@ -61,7 +75,11 @@ export async function removeCrossBanChannel(id: number) {
 }
 
 async function getEnabledCrossBanChannels() {
-  return prisma.crossBanChannel.findMany({ where: { enabled: true } })
+  const [channels, sponsorGroupIds] = await Promise.all([
+    prisma.crossBanChannel.findMany({ where: { enabled: true } }),
+    getSponsorApprovalGroupIds(),
+  ])
+  return channels.filter((c: { channelId: string }) => !sponsorGroupIds.has(c.channelId))
 }
 
 // ⚠️ FIX: Eskiden bu kontrol "action" farkına bakmadan, kullanıcı için SON

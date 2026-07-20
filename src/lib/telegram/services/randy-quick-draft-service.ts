@@ -14,7 +14,7 @@ export async function getRandyGroupDefaults(groupId: string) {
 
 export async function setRandyGroupDefaults(
   groupId: string,
-  data: Partial<{ message: string | null; messageEntitiesJson: string | null; requirementType: string; requiredMessageCount: number | null; winnerCount: number | null; pointsReward: number | null; pointsOnly: boolean }>
+  data: Partial<{ message: string | null; messageEntitiesJson: string | null; requirementType: string; requiredMessageCount: number | null; winnerCount: number | null; pointsReward: number | null; pointsOnly: boolean; requireWebsiteMembership: boolean }>
 ) {
   return prisma.randyGroupDefaults.upsert({
     where: { groupId },
@@ -24,7 +24,14 @@ export async function setRandyGroupDefaults(
 }
 
 export async function listRandyGroupDefaultChannels(groupId: string) {
-  return prisma.randyGroupDefaultChannel.findMany({ where: { groupId }, orderBy: { id: 'asc' } })
+  const [channels, sponsorApprovalGroups] = await Promise.all([
+    prisma.randyGroupDefaultChannel.findMany({ where: { groupId }, orderBy: { id: 'asc' } }),
+    prisma.sponsor.findMany({ where: { approvalGroupId: { not: null } }, select: { approvalGroupId: true } }),
+  ])
+  const sponsorGroupIds = new Set(sponsorApprovalGroups.map((s: { approvalGroupId: string | null }) => s.approvalGroupId))
+  // Manuel eklenmiş bir zorunlu kanal, sonradan bir sponsörün onay grubu
+  // olarak atandıysa artık burada da görünmemeli/kullanılmamalı.
+  return channels.filter((c: { channelId: string }) => !sponsorGroupIds.has(c.channelId))
 }
 
 export async function addRandyGroupDefaultChannel(groupId: string, channelId: string, channelUsername?: string | null, channelTitle?: string | null) {
@@ -95,6 +102,7 @@ export async function startRandyFromDefaults(groupId: string): Promise<{ success
       winnerCount: defaults.winnerCount,
       prizePoints: defaults.pointsReward || 0,
       pointsOnly: defaults.pointsOnly || false,
+      requireWebsiteMembership: defaults.requireWebsiteMembership || false,
       pinMessage: false,
       status: 'draft',
     },

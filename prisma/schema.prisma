@@ -550,6 +550,7 @@ model UserSponsorInfo {
   telegramMessageId   String?      // Onay kartının mesaj ID'si
   decidedByTelegramId String?      // Kararı veren adminin telegram ID'si
   decidedAt           DateTime?
+  lastReminderAt      DateTime?    // Uzun süre yanıtsız kalınca hatırlatma olarak yeniden gönderildiği an
 
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @default(now())
@@ -1005,6 +1006,7 @@ model RandyGroupDefaults {
   winnerCount          Int?
   pointsReward         Int?
   pointsOnly           Boolean  @default(false) // Açıksa: ödül SADECE puan, fiziksel/harici ödül yok
+  requireWebsiteMembership Boolean @default(false) // Açıksa: katılmak için site hesabı gerekir
   updatedAt            DateTime @updatedAt
 }
 
@@ -1045,6 +1047,7 @@ model Randy {
   winnerCount           Int             @default(1) // Kaç kazanan çekilecek
   prizePoints           Int             @default(0) // Kazananlara verilecek puan (0 = puan yok)
   pointsOnly            Boolean         @default(false) // Açıksa: ödül SADECE puan, fiziksel/harici ödül yok - kazanan mesajı "destekle iletişime geç" demez
+  requireWebsiteMembership Boolean      @default(false) // Açıksa: katılmak için site hesabı (bota /start yapmak yetmez, siteye kayıtlı ve bağlı olmak gerekir)
 
   // Ayarlar
   pinMessage            Boolean         @default(false) // Mesaj sabitleme

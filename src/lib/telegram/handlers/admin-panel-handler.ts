@@ -209,6 +209,7 @@ async function buildRandyConfigMessage(group: { groupId: string; title: string |
   const reqCount = defaults?.requiredMessageCount
   const points = defaults?.pointsReward
   const winnerCount = defaults?.winnerCount
+  const websiteRequired = defaults?.requireWebsiteMembership ?? false
 
   const reqSummary = isChannel ? 'Şartsız' : `${REQUIREMENT_LABEL_TR[req] ?? req}${reqCount ? ` ${reqCount}` : ''}`
 
@@ -220,6 +221,7 @@ async function buildRandyConfigMessage(group: { groupId: string; title: string |
       defaults?.message ? `<i>"${defaults.message.slice(0, 80)}${defaults.message.length > 80 ? '...' : ''}"</i>` : '',
       `Şart: <b>${reqSummary}</b>`,
       `Kanal şartı: <b>${channels.length > 0 ? `${channels.length} kanal` : 'yok'}</b>`,
+      `Website zorunluluğu: <b>${websiteRequired ? 'Açık' : 'Kapalı'}</b>`,
       `Varsayılan kazanan sayısı: <b>${winnerCount ?? 'ayarlanmadı'}</b>`,
       `Puan ödülü: <b>${points ? `${points} puan` : 'kapalı'}</b>`,
       '',
@@ -232,6 +234,7 @@ async function buildRandyConfigMessage(group: { groupId: string; title: string |
         [{ text: '✍️ Randy Mesajını Ayarla', callback_data: `randymsg:${group.groupId}` }],
         [{ text: `📋 Mesaj Şartı (${reqSummary})`, callback_data: `randyreqmenu:${group.groupId}` }],
         [{ text: `📢 Kanal Şartı (${channels.length})`, callback_data: `randywc:${group.groupId}` }],
+        [{ text: `${websiteRequired ? '☑️' : '⬜'} Website Zorunluluğu`, callback_data: `randywebreq:${group.groupId}` }],
         [{ text: '🔢 Kazanan Sayısını Ayarla', callback_data: `randywinner:${group.groupId}` }],
         [{ text: `💰 Puan Ödülü (${points ? `${points} puan` : 'kapalı'})`, callback_data: `randyptsmenu:${group.groupId}` }],
         [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
@@ -672,6 +675,25 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
     await answerCallbackQuery(query.id, newValue ? '✅ Sadece Puan açıldı.' : '✅ Sadece Puan kapatıldı.')
+    return true
+  }
+
+  if (data.startsWith('randywebreq:')) {
+    const groupId = data.replace('randywebreq:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const current = await getRandyGroupDefaults(groupId)
+    const newValue = !(current?.requireWebsiteMembership ?? false)
+    await setRandyGroupDefaults(groupId, { requireWebsiteMembership: newValue })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildRandyConfigMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id, newValue ? '✅ Website zorunluluğu açıldı.' : '✅ Website zorunluluğu kapatıldı.')
     return true
   }
 

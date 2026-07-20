@@ -21,6 +21,9 @@
 [functions."cleanup-sessions"]
   runtime = "nodejs20.x"
 
+[functions."sponsor-approval-reminder"]
+  runtime = "nodejs20.x"
+
 [functions."daily-leaderboard"]
   runtime = "nodejs20.x"
 
