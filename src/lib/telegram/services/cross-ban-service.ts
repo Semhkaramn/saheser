@@ -49,7 +49,10 @@ async function getSponsorApprovalGroupIds(): Promise<Set<string>> {
     where: { approvalGroupId: { not: null } },
     select: { approvalGroupId: true },
   })
-  return new Set(sponsors.map((s: { approvalGroupId: string | null }) => s.approvalGroupId))
+  const ids = sponsors
+    .map((s: { approvalGroupId: string | null }) => s.approvalGroupId)
+    .filter((id: string | null): id is string => id !== null)
+  return new Set(ids)
 }
 
 export async function listCrossBanChannels() {
