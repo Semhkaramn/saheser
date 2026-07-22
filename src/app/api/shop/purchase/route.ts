@@ -73,9 +73,8 @@ export async function POST(request: NextRequest) {
 
     // Sponsor kategorisi kontrolü
     if (item.category === 'Sponsor' && item.sponsorId) {
-      const userHasSponsorInfo = user.sponsorInfos.some(
-        info => info.sponsorId === item.sponsorId
-      )
+      const existingInfo = user.sponsorInfos.find((info: { sponsorId: string }) => info.sponsorId === item.sponsorId)
+      const userHasSponsorInfo = !!existingInfo
 
       if (!sponsorInfo && !userHasSponsorInfo) {
         return NextResponse.json(
@@ -90,14 +89,24 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // ✅ "Sadece onaylılar alabilir" şartı açıksa, sponsor bilgisi sadece
-      // girilmiş olması yetmez - admin tarafından ONAYLANMIŞ olmalı.
-      if (item.requireApprovedSponsor && !sponsorInfo) {
-        const existingInfo = user.sponsorInfos.find((info) => info.sponsorId === item.sponsorId)
-        if (existingInfo && existingInfo.status !== 'approved') {
-          const statusText = existingInfo.status === 'pending' ? 'henüz onaylanmadı' : 'onaylanmadı, lütfen kontrol edip tekrar gönderin'
+      // ✅ FIX: Eskiden bu kontrol SADECE istek gövdesinde "sponsorInfo" YOKSA
+      // çalışıyordu ("!sponsorInfo" şartı) - yani kullanıcının onaylanmamış
+      // (örn. "yatırım sonrası") kayıtlı bilgisi varken form bunu tekrar
+      // gönderse bile ("sponsorInfo" dolu geldiği için) onay kontrolü tamamen
+      // atlanıyordu. Artık istekte ne gönderildiğine bakmadan, GERÇEK
+      // onay durumunu her zaman kontrol ediyoruz. Yeni/farklı bir bilgi
+      // gönderiliyorsa (henüz incelenmediği için) o da onaylı sayılmaz.
+      if (item.requireApprovedSponsor) {
+        const isSubmittingNewInfo = !!sponsorInfo && sponsorInfo !== existingInfo?.identifier
+        const effectiveStatus = isSubmittingNewInfo ? 'pending' : existingInfo?.status
+
+        if (effectiveStatus !== 'approved') {
+          const statusText =
+            effectiveStatus === 'pending' || isSubmittingNewInfo
+              ? 'henüz onaylanmadı'
+              : 'onaylanmadı, lütfen kontrol edip tekrar gönderin'
           return NextResponse.json(
-            { error: `Sponsor bilginiz ${statusText}`, sponsorApprovalStatus: existingInfo.status },
+            { error: `Sponsor bilginiz ${statusText}`, sponsorApprovalStatus: effectiveStatus || 'pending' },
             { status: 400 }
           )
         }

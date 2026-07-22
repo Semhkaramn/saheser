@@ -16,12 +16,12 @@ function summaryLines(itemName: string, price: number, siteUsername: string, spo
     `Ürün: <b>${itemName}</b>`,
     `Üye: <b>${siteUsername}</b>`,
   ]
-  // Sponsora özel onay grubunda puan yerine sponsor bilgisi öne çıkıyor -
-  // orada admin puanla değil, kullanıcının o sponsordaki referans/kullanıcı
-  // bilgisini doğrulamakla ilgileniyor. Genel onay kuyruğunda (site geneli)
-  // puan bilgisi hâlâ gösteriliyor.
-  if (isSponsorGroup && sponsorInfo) {
-    lines.push(`Sponsor Bilgisi: <code>${sponsorInfo}</code>`)
+  // Sponsora özel onay grubunda puan HİÇ gösterilmiyor - orada admin puanla
+  // değil, kullanıcının o sponsordaki referans/kullanıcı bilgisini
+  // doğrulamakla ilgileniyor. Genel onay kuyruğunda (site geneli) puan
+  // bilgisi hâlâ gösteriliyor.
+  if (isSponsorGroup) {
+    lines.push(`Sponsor Bilgisi: <code>${sponsorInfo || 'Girilmemiş'}</code>`)
   } else {
     lines.push(`Puan: <b>${price}</b>`)
     if (sponsorInfo) lines.push(`Sponsor Bilgisi: <code>${sponsorInfo}</code>`)
