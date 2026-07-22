@@ -142,6 +142,19 @@ export default function AdminSponsorsPage() {
   const [shortLinks, setShortLinks] = useState<{ id: string; slug: string; targetUrl: string; title: string | null }[]>([])
   const [useCustomUrl, setUseCustomUrl] = useState(false)
 
+  const [groupSearchTerm, setGroupSearchTerm] = useState('')
+
+  // Sponsor formundaki grup dropdown'ı: kendi (düzenlenen sponsörün) grubu
+  // hariç, BAŞKA sponsörlere zaten atanmış grupları göstermiyoruz - yoksa
+  // bir grup yanlışlıkla iki sponsöre birden atanabilir, liste de gereksiz
+  // kalabalıklaşır.
+  const visibleBotGroups = botGroups.filter((g) => {
+    const takenByOtherSponsor = sponsors.some(
+      (s) => s.approvalGroupId === g.groupId && s.id !== editingSponsor?.id
+    )
+    return !takenByOtherSponsor
+  })
+
   useEffect(() => {
     const token = localStorage.getItem('admin_token')
     if (!token) {
@@ -1153,21 +1166,30 @@ export default function AdminSponsorsPage() {
 
             <div>
               <Label htmlFor="approvalGroupId" className="admin-text-primary">Telegram Onay Grubu (opsiyonel)</Label>
+              <input
+                type="text"
+                value={groupSearchTerm}
+                onChange={(e) => setGroupSearchTerm(e.target.value)}
+                placeholder="🔎 Grup ara..."
+                className="admin-input mt-1 w-full rounded-lg px-3 py-2 text-sm mb-1.5"
+              />
               <select
                 id="approvalGroupId"
                 value={formData.approvalGroupId}
                 onChange={(e) => setFormData({ ...formData, approvalGroupId: e.target.value })}
-                className="admin-input mt-1 w-full rounded-lg px-3 py-2 text-sm"
+                className="admin-input w-full rounded-lg px-3 py-2 text-sm"
               >
                 <option value="">— Bota bağlı grup/kanal seç —</option>
-                {formData.approvalGroupId && !botGroups.some((g) => g.groupId === formData.approvalGroupId) && (
+                {formData.approvalGroupId && !visibleBotGroups.some((g) => g.groupId === formData.approvalGroupId) && (
                   <option value={formData.approvalGroupId}>⚠️ {formData.approvalGroupId} (listede bulunamadı, mevcut değer)</option>
                 )}
-                {botGroups.map((g) => (
-                  <option key={g.groupId} value={g.groupId}>
-                    {g.chatType === 'channel' ? '📢' : '👥'} {g.title || g.groupId}
-                  </option>
-                ))}
+                {visibleBotGroups
+                  .filter((g) => !groupSearchTerm || (g.title || g.groupId).toLocaleLowerCase('tr').includes(groupSearchTerm.toLocaleLowerCase('tr')))
+                  .map((g) => (
+                    <option key={g.groupId} value={g.groupId}>
+                      {g.chatType === 'channel' ? '📢' : '👥'} {g.title || g.groupId}
+                    </option>
+                  ))}
               </select>
               <p className="text-xs admin-text-muted mt-1">
                 Kullanıcı bu sponsor için bilgi girdiğinde veya bu sponsora bağlı bir ürün satın aldığında,

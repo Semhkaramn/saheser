@@ -49,11 +49,11 @@ const SponsorCard = memo(function SponsorCard({
       <div
         onClick={handleClick}
         data-hover-arrow
-        className="neon-ring-spin group p-[2px] rounded-2xl cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+        className="neon-ring-spin group p-[2px] rounded-2xl cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 h-full"
         style={{ color: theme.colors.primary, boxShadow: `0 4px 18px ${theme.colors.primary}25` }}
       >
         <div
-          className="relative z-[1] rounded-[calc(1rem-2px)] flex flex-col items-center text-center gap-1.5 p-3 sm:p-4"
+          className="relative z-[1] rounded-[calc(1rem-2px)] flex flex-col items-center text-center gap-1.5 p-3 sm:p-4 h-full"
           style={{ background: theme.colors.card }}
         >
           {sponsor.logoUrl ? (
@@ -97,7 +97,7 @@ const SponsorCard = memo(function SponsorCard({
           )}
 
           <span
-            className="inline-flex items-center gap-1 text-[11px] font-bold opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            className="mt-auto inline-flex items-center gap-1 text-[11px] font-bold opacity-0 group-hover:opacity-100 transition-opacity duration-200"
             style={{ color: theme.colors.primary }}
           >
             Siteye Git <span className="cta-arrow">→</span>
@@ -115,11 +115,11 @@ const SponsorCard = memo(function SponsorCard({
     <div
       onClick={handleClick}
       data-hover-arrow
-      className="neon-ring-static group p-[1.5px] rounded-xl cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+      className="neon-ring-static group p-[1.5px] rounded-xl cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 h-full"
       style={{ background: `${neonColor}55` }}
     >
       <div
-        className="relative z-[1] rounded-[calc(0.75rem-1.5px)] flex flex-col items-center text-center gap-1.5 p-2.5"
+        className="relative z-[1] rounded-[calc(0.75rem-1.5px)] flex flex-col items-center text-center gap-1.5 p-2.5 h-full"
         style={{ background: theme.colors.card }}
       >
         {/* Logo - küçük, sade */}
@@ -173,7 +173,7 @@ const SponsorCard = memo(function SponsorCard({
 
         {/* Hover'da beliren "Git" oku - kartın tıklanabilir olduğunu görünür kılar */}
         <span
-          className="inline-flex items-center gap-0.5 text-[11px] font-bold opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          className="mt-auto inline-flex items-center gap-0.5 text-[11px] font-bold opacity-0 group-hover:opacity-100 transition-opacity duration-200"
           style={{ color: neonColor }}
         >
           Git <span className="cta-arrow">→</span>

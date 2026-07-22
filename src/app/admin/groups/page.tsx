@@ -70,6 +70,18 @@ function GroupsTab() {
     }
   }
 
+  async function deleteGroup(g: GroupRow) {
+    if (!confirm(`"${g.title || g.groupId}" grubunu kalıcı olarak listeden silmek istediğine emin misin? (Bot gruptan çıkarılmaz, sadece kayıt silinir - eski/kalıntı kayıtları temizlemek için)`)) return
+    try {
+      const res = await fetch(`/api/admin/groups/${g.groupId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      toast.success('Grup kaydı silindi')
+      load()
+    } catch {
+      toast.error('Silinemedi')
+    }
+  }
+
   async function refreshExcluded(groupId: string) {
     setExcludedLoading(true)
     try {
@@ -166,6 +178,9 @@ function GroupsTab() {
                 )}
                 <Button variant="outline" size="sm" onClick={() => toggleActive(g)}>
                   {g.isActive ? 'Pasifleştir' : 'Aktifleştir'}
+                </Button>
+                <Button variant="outline" size="sm" className="text-rose-400 hover:text-rose-300" onClick={() => deleteGroup(g)}>
+                  Sil
                 </Button>
               </div>
 

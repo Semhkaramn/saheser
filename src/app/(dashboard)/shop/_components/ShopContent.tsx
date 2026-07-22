@@ -412,7 +412,7 @@ function ShopContent() {
                   <ThemedCard
                     key={item.id}
                     variant="hover"
-                    className="overflow-hidden p-0 cursor-pointer"
+                    className="overflow-hidden p-0 cursor-pointer h-full flex flex-col"
                     onClick={() => router.push(`/shop/${item.slug || item.id}`)}
                   >
                     {item.imageUrl ? (
@@ -454,7 +454,7 @@ function ShopContent() {
                         />
                       </div>
                     ) : null}
-                    <div className="p-3">
+                    <div className="p-3 flex-1 flex flex-col">
                       <h3
                         className="font-semibold mb-1 font-display leading-snug"
                         style={{
@@ -472,48 +472,50 @@ function ShopContent() {
                           {item.description}
                         </p>
                       )}
-                      <div className="flex items-center justify-between mb-2.5">
-                        <div
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-full"
-                          style={{ background: `${theme.colors.warning}18` }}
-                        >
-                          <Coins className="w-3.5 h-3.5" style={{ color: theme.colors.warning }} />
-                          <span className="font-bold text-sm font-data" style={{ color: theme.colors.warning }}>
-                            {item.price.toLocaleString('tr-TR')}
-                          </span>
+                      <div className="mt-auto">
+                        <div className="flex items-center justify-between mb-2.5">
+                          <div
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-full"
+                            style={{ background: `${theme.colors.warning}18` }}
+                          >
+                            <Coins className="w-3.5 h-3.5" style={{ color: theme.colors.warning }} />
+                            <span className="font-bold text-sm font-data" style={{ color: theme.colors.warning }}>
+                              {item.price.toLocaleString('tr-TR')}
+                            </span>
+                          </div>
+                          {item.stock !== null && (
+                            <span className="text-[11px]" style={{ color: theme.colors.textMuted }}>
+                              Stok: {item.stock}
+                            </span>
+                          )}
                         </div>
-                        {item.stock !== null && (
-                          <span className="text-[11px]" style={{ color: theme.colors.textMuted }}>
-                            Stok: {item.stock}
-                          </span>
+                        {item.purchaseLimit !== null &&
+                         item.purchaseLimit !== undefined &&
+                         item.userPurchaseCount !== undefined &&
+                         item.userPurchaseCount >= item.purchaseLimit ? (
+                          <button
+                            disabled
+                            className="w-full py-2 px-4 rounded-full text-xs font-semibold opacity-70 cursor-not-allowed"
+                            style={{
+                              background: `${theme.colors.error}18`,
+                              color: theme.colors.error,
+                              border: `1px solid ${theme.colors.error}30`
+                            }}
+                          >
+                            Limit Doldu
+                          </button>
+                        ) : (
+                          <ThemedButton
+                            onClick={(e) => { e.stopPropagation(); router.push(`/shop/${item.slug || item.id}`) }}
+                            variant="primary"
+                            className="w-full rounded-full"
+                            size="sm"
+                          >
+                            <Heart className="w-4 h-4 mr-1" />
+                            İncele
+                          </ThemedButton>
                         )}
                       </div>
-                      {item.purchaseLimit !== null &&
-                       item.purchaseLimit !== undefined &&
-                       item.userPurchaseCount !== undefined &&
-                       item.userPurchaseCount >= item.purchaseLimit ? (
-                        <button
-                          disabled
-                          className="w-full py-2 px-4 rounded-full text-xs font-semibold opacity-70 cursor-not-allowed"
-                          style={{
-                            background: `${theme.colors.error}18`,
-                            color: theme.colors.error,
-                            border: `1px solid ${theme.colors.error}30`
-                          }}
-                        >
-                          Limit Doldu
-                        </button>
-                      ) : (
-                        <ThemedButton
-                          onClick={(e) => { e.stopPropagation(); router.push(`/shop/${item.slug || item.id}`) }}
-                          variant="primary"
-                          className="w-full rounded-full"
-                          size="sm"
-                        >
-                          <Heart className="w-4 h-4 mr-1" />
-                          İncele
-                        </ThemedButton>
-                      )}
                     </div>
                   </ThemedCard>
                 ))}

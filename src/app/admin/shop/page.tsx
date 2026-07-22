@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowLeft, Plus, Edit, Trash2, ShoppingCart, Package, Clock, CheckCircle, XCircle, AlertCircle, Upload, X, History } from 'lucide-react'
+import { ArrowLeft, Plus, Edit, Trash2, ShoppingCart, Package, Clock, CheckCircle, XCircle, AlertCircle, Upload, X, History, GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { SITE_CONFIG } from '@/lib/site-config'
@@ -71,6 +71,7 @@ export default function AdminShopPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [items, setItems] = useState<ShopItem[]>([])
+  const [draggedItem, setDraggedItem] = useState<number | null>(null)
   const [pendingOrders, setPendingOrders] = useState<Order[]>([])
   const [historyOrders, setHistoryOrders] = useState<Order[]>([])
   const [sponsors, setSponsors] = useState<{ id: string; name: string; identifierType: string }[]>([])
@@ -152,6 +153,43 @@ export default function AdminShopPage() {
       toast.error('Ürünler yüklenemedi')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Sürükle-bırak sıralama - promosyonlarla aynı desen.
+  function handleDragStart(index: number) {
+    setDraggedItem(index)
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault()
+    if (draggedItem === null || draggedItem === index) return
+
+    const newItems = [...items]
+    const draggedItemData = newItems[draggedItem]
+    newItems.splice(draggedItem, 1)
+    newItems.splice(index, 0, draggedItemData)
+
+    setItems(newItems)
+    setDraggedItem(index)
+  }
+
+  async function handleDragEnd() {
+    if (draggedItem === null) return
+    setDraggedItem(null)
+
+    try {
+      const updates = items.map((item, index) => ({ id: item.id, order: index }))
+      const res = await fetch('/api/admin/shop/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: updates }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success('Sıralama kaydedildi')
+    } catch {
+      toast.error('Sıralama kaydedilemedi')
+      loadItems()
     }
   }
 
@@ -567,9 +605,18 @@ export default function AdminShopPage() {
                   <p className="admin-text-muted">Henüz ürün eklenmemiş</p>
                 </Card>
               ) : (
-                items.map((item) => (
-                  <Card key={item.id} className="admin-card p-4">
+                items.map((item, index) => (
+                  <Card
+                    key={item.id}
+                    className="admin-card p-4"
+                    draggable
+                    onDragStart={() => handleDragStart(index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragEnd={handleDragEnd}
+                    style={{ opacity: draggedItem === index ? 0.5 : 1, cursor: 'grab' }}
+                  >
                     <div className="flex gap-4">
+                      <GripVertical className="w-4 h-4 admin-text-muted flex-shrink-0 mt-2" />
                       {item.imageUrl && (
                         <img
                           src={item.imageUrl}

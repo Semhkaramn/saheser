@@ -25,3 +25,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Güncellenemedi' }, { status: 500 })
   }
 }
+
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const authCheck = await requirePermission(request, 'canAccessSettings')
+  if (authCheck.error) return authCheck.error
+
+  try {
+    const { groupId } = await params
+    await prisma.telegramGroup.delete({ where: { groupId } })
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Group delete error:', error)
+    return NextResponse.json({ error: 'Silinemedi' }, { status: 500 })
+  }
+}
