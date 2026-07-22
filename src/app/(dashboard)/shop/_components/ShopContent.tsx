@@ -456,22 +456,15 @@ function ShopContent() {
                     ) : null}
                     <div className="p-3 flex-1 flex flex-col">
                       <h3
-                        className="font-semibold mb-1 font-display leading-snug"
+                        className="font-semibold mb-1 font-display leading-snug line-clamp-2"
                         style={{
                           color: theme.colors.text,
                           fontSize: item.name.length > 28 ? '0.75rem' : item.name.length > 18 ? '0.8125rem' : '0.875rem',
+                          minHeight: '2.4em',
                         }}
                       >
                         {item.name}
                       </h3>
-                      {item.description && (
-                        <p
-                          className="text-xs mb-2.5"
-                          style={{ color: theme.colors.textMuted, whiteSpace: 'pre-line' }}
-                        >
-                          {item.description}
-                        </p>
-                      )}
                       <div className="mt-auto">
                         <div className="flex items-center justify-between mb-2.5">
                           <div

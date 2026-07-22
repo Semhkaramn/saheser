@@ -855,11 +855,14 @@ export default function AdminSponsorsPage() {
               </div>
             ) : (
               <div className="admin-card w-full">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto" style={{ maxHeight: '70vh' }}>
                   <table className="w-full border-collapse" style={{ minWidth: '100%' }}>
                     <thead>
-                      <tr className="admin-table-header border-b-2 border-white/10">
-                        <th className="admin-table-head whitespace-nowrap" style={{ width: '180px' }}>
+                      <tr className="admin-table-header border-b-2 border-white/10 sticky top-0 z-20">
+                        <th
+                          className="admin-table-head whitespace-nowrap sticky left-0 z-30 bg-[hsl(var(--admin-card))]"
+                          style={{ width: '180px' }}
+                        >
                           <div className="flex items-center gap-2">
                             <span>Site Username</span>
                             <Button
@@ -901,7 +904,7 @@ export default function AdminSponsorsPage() {
                           </div>
                         </th>
                         {sponsors.map((sponsor) => (
-                          <th key={sponsor.id} className="admin-table-head text-center whitespace-nowrap" style={{ minWidth: '200px' }}>
+                          <th key={sponsor.id} className="admin-table-head text-center whitespace-nowrap" style={{ minWidth: '160px' }}>
                             <div className="flex items-center justify-center gap-2">
                               {sponsor.category === 'vip' && (
                                 <Crown className="w-4 h-4 text-yellow-500 flex-shrink-0" />
@@ -944,7 +947,7 @@ export default function AdminSponsorsPage() {
                             className="border-b border-white/5 hover:bg-white/5 transition-colors"
                           >
                             {/* Site Username */}
-                            <td className="admin-table-cell admin-text-primary font-semibold whitespace-nowrap">
+                            <td className="admin-table-cell admin-text-primary font-semibold whitespace-nowrap sticky left-0 z-10 bg-[hsl(var(--admin-card))]">
                               {userData.siteUsername || userData.firstName || userData.telegramUsername || 'Kullanıcı'}
                             </td>
 

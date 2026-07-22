@@ -9,22 +9,30 @@ import { notifyOrderStatusChange } from '@/lib/notifications'
 
 type Decision = 'approved' | 'rejected'
 
-function summaryLines(itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null) {
+function summaryLines(itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null, isSponsorGroup: boolean) {
   const lines = [
     `🛒 <b>Yeni Sipariş</b>`,
     '',
     `Ürün: <b>${itemName}</b>`,
-    `Puan: <b>${price}</b>`,
     `Üye: <b>${siteUsername}</b>`,
   ]
-  if (sponsorInfo) lines.push(`Sponsor Bilgisi: <code>${sponsorInfo}</code>`)
+  // Sponsora özel onay grubunda puan yerine sponsor bilgisi öne çıkıyor -
+  // orada admin puanla değil, kullanıcının o sponsordaki referans/kullanıcı
+  // bilgisini doğrulamakla ilgileniyor. Genel onay kuyruğunda (site geneli)
+  // puan bilgisi hâlâ gösteriliyor.
+  if (isSponsorGroup && sponsorInfo) {
+    lines.push(`Sponsor Bilgisi: <code>${sponsorInfo}</code>`)
+  } else {
+    lines.push(`Puan: <b>${price}</b>`)
+    if (sponsorInfo) lines.push(`Sponsor Bilgisi: <code>${sponsorInfo}</code>`)
+  }
   if (walletAddress) lines.push(`Cüzdan: <code>${walletAddress}</code>`)
   return lines.join('\n')
 }
 
-function buildPendingMessage(purchaseId: string, itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null) {
+function buildPendingMessage(purchaseId: string, itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null, isSponsorGroup: boolean) {
   return {
-    text: [summaryLines(itemName, price, siteUsername, sponsorInfo, walletAddress), '', 'Durumu seçin:'].join('\n'),
+    text: [summaryLines(itemName, price, siteUsername, sponsorInfo, walletAddress, isSponsorGroup), '', 'Durumu seçin:'].join('\n'),
     reply_markup: {
       inline_keyboard: [[
         { text: '✅ Onayla (Teslim Edildi)', callback_data: `purchase_action:${purchaseId}:approved` },
@@ -34,11 +42,11 @@ function buildPendingMessage(purchaseId: string, itemName: string, price: number
   }
 }
 
-function buildConfirmMessage(purchaseId: string, itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null, decision: Decision) {
+function buildConfirmMessage(purchaseId: string, itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null, decision: Decision, isSponsorGroup: boolean) {
   const label = decision === 'approved' ? 'Onayla (Teslim Edildi)' : 'Reddet (Puan İade)'
   return {
     text: [
-      summaryLines(itemName, price, siteUsername, sponsorInfo, walletAddress),
+      summaryLines(itemName, price, siteUsername, sponsorInfo, walletAddress, isSponsorGroup),
       '',
       `Seçilen işlem: <b>${label}</b>`,
       'Emin misin?',
@@ -52,10 +60,10 @@ function buildConfirmMessage(purchaseId: string, itemName: string, price: number
   }
 }
 
-function buildFinalMessage(itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null, decision: Decision) {
+function buildFinalMessage(itemName: string, price: number, siteUsername: string, sponsorInfo: string | null, walletAddress: string | null, decision: Decision, isSponsorGroup: boolean) {
   const label = decision === 'approved' ? 'Onaylandı ✅' : 'Reddedildi ❌ (puan iade edildi)'
   return {
-    text: [summaryLines(itemName, price, siteUsername, sponsorInfo, walletAddress), '', `Durum: <b>${label}</b>`].join('\n'),
+    text: [summaryLines(itemName, price, siteUsername, sponsorInfo, walletAddress, isSponsorGroup), '', `Durum: <b>${label}</b>`].join('\n'),
     reply_markup: { inline_keyboard: [] },
   }
 }
@@ -72,6 +80,7 @@ export async function notifyPurchaseApprovalGroup(purchaseId: string) {
   })
   if (!purchase) return
 
+  const isSponsorGroup = !!purchase.item.sponsor?.approvalGroupId
   const groupId = purchase.item.sponsor?.approvalGroupId || process.env.PURCHASE_APPROVAL_GROUP_ID
   if (!groupId) return
 
@@ -81,7 +90,8 @@ export async function notifyPurchaseApprovalGroup(purchaseId: string) {
     purchase.pointsSpent,
     purchase.user.siteUsername || purchase.user.telegramUsername || 'Bilinmiyor',
     purchase.sponsorInfo,
-    purchase.walletAddress
+    purchase.walletAddress,
+    isSponsorGroup
   )
 
   const sent = await sendTelegramMessage(groupId, text, { keyboard: reply_markup })
@@ -103,14 +113,14 @@ export async function handlePurchaseAction(query: any): Promise<boolean> {
   const chatId = query.message?.chat?.id
   const purchase = await prisma.userPurchase.findUnique({
     where: { id: purchaseId },
-    include: { item: true, user: { select: { siteUsername: true, telegramUsername: true } } },
+    include: { item: { include: { sponsor: true } }, user: { select: { siteUsername: true, telegramUsername: true } } },
   })
   if (!purchase) return true
 
   const { text, reply_markup } = buildConfirmMessage(
     purchase.id, purchase.item.name, purchase.pointsSpent,
     purchase.user.siteUsername || purchase.user.telegramUsername || 'Bilinmiyor',
-    purchase.sponsorInfo, purchase.walletAddress, decisionRaw
+    purchase.sponsorInfo, purchase.walletAddress, decisionRaw, !!purchase.item.sponsor?.approvalGroupId
   )
   await editTelegramMessage(chatId, query.message.message_id, text, reply_markup)
   return true
@@ -123,7 +133,7 @@ export async function handlePurchaseConfirm(query: any): Promise<boolean> {
   const chatId = query.message?.chat?.id
   const purchase = await prisma.userPurchase.findUnique({
     where: { id: purchaseId },
-    include: { item: true, user: { select: { id: true, siteUsername: true, telegramUsername: true, telegramId: true } } },
+    include: { item: { include: { sponsor: true } }, user: { select: { id: true, siteUsername: true, telegramUsername: true, telegramId: true } } },
   })
   if (!purchase) return true
 
@@ -131,7 +141,7 @@ export async function handlePurchaseConfirm(query: any): Promise<boolean> {
     const { text, reply_markup } = buildPendingMessage(
       purchase.id, purchase.item.name, purchase.pointsSpent,
       purchase.user.siteUsername || purchase.user.telegramUsername || 'Bilinmiyor',
-      purchase.sponsorInfo, purchase.walletAddress
+      purchase.sponsorInfo, purchase.walletAddress, !!purchase.item.sponsor?.approvalGroupId
     )
     await editTelegramMessage(chatId, query.message.message_id, text, reply_markup)
     await answerCallbackQuery(query.id, '↩️ İptal edildi, ilk seçime dönüldü.', false)
@@ -170,7 +180,7 @@ export async function handlePurchaseConfirm(query: any): Promise<boolean> {
   const { text, reply_markup } = buildFinalMessage(
     purchase.item.name, purchase.pointsSpent,
     purchase.user.siteUsername || purchase.user.telegramUsername || 'Bilinmiyor',
-    purchase.sponsorInfo, purchase.walletAddress, decisionRaw
+    purchase.sponsorInfo, purchase.walletAddress, decisionRaw, !!purchase.item.sponsor?.approvalGroupId
   )
   await editTelegramMessage(chatId, query.message.message_id, text, reply_markup)
 
