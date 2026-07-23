@@ -194,9 +194,9 @@ export async function endClassicGiveaway(id: string) {
 }
 
 /**
- * Admin'e aktif çekilişin İLERLEMESİNİ gösterir (kaç kazanan bulundu, ne
- * zaman bitecek) - ama GELECEKTEKİ kazanma anlarını asla göstermez, sürpriz
- * unsuru bozulmasın diye. "ben göremiyorum" şikayeti için eklendi.
+ * Admin'e aktif çekilişin TÜM kazanma anlarını gösterir - hem geçmiş
+ * (kazanılmış) hem gelecek (henüz gelmemiş) anlar dahil. Admin kendi
+ * yönetimi için bunu görebilmek istiyor.
  */
 export async function getClassicGiveawayStatus(groupId: string) {
   const giveaway = await getActiveClassicGiveaway(groupId)
@@ -217,6 +217,14 @@ export async function getClassicGiveawayStatus(groupId: string) {
     remainingCount,
     winners: wonSlots.map((s: { winnerUsername: string | null; winnerFirstName: string | null; wonAt: Date | null }) => ({
       name: s.winnerUsername ? `@${s.winnerUsername}` : s.winnerFirstName || 'Bilinmiyor',
+      wonAt: s.wonAt,
+    })),
+    // Tüm anlar (geçmiş + gelecek) - admin talebiyle gösteriliyor.
+    allSlots: slots.map((s: { slotNumber: number; winTime: Date; isWon: boolean; winnerUsername: string | null; winnerFirstName: string | null; wonAt: Date | null }) => ({
+      slotNumber: s.slotNumber,
+      winTime: s.winTime,
+      isWon: s.isWon,
+      winnerName: s.isWon ? (s.winnerUsername ? `@${s.winnerUsername}` : s.winnerFirstName || 'Bilinmiyor') : null,
       wonAt: s.wonAt,
     })),
   }

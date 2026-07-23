@@ -16,6 +16,7 @@ export interface MessageRewardInput {
   firstName?: string
   lastName?: string
   messageText: string
+  isMediaMessage?: boolean
   chatId: number
 }
 
@@ -78,7 +79,7 @@ async function invalidateLeaderboardCacheThrottled() {
 export async function processMessageReward(
   input: MessageRewardInput
 ): Promise<MessageRewardResult> {
-  const { userId, username, firstName, lastName, messageText, chatId } = input
+  const { userId, username, firstName, lastName, messageText, isMediaMessage, chatId } = input
 
   // 🔒 CRITICAL: Anonim admin ve Telegram servis hesabını veritabanına KAYDETME!
   // Bu hesaplar puan kazanmamalı ve leaderboard'a eklenmemeli
@@ -188,7 +189,7 @@ export async function processMessageReward(
   const { existingTgUser, telegramGroupUser } = result
 
   // 4️⃣ Mesaj uzunluğu kontrolü - SADECE PUAN/XP İÇİN
-  if (messageText.length < minMessageLength) {
+  if (!isMediaMessage && messageText.length < minMessageLength) {
     return { success: false, reason: 'Message too short' }
   }
 

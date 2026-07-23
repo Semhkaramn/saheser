@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const active = await prisma.classicGiveaway.findMany({
       where: { status: 'active' },
       include: {
-        winTimes: { where: { isWon: true }, orderBy: { slotNumber: 'asc' } },
+        winTimes: { orderBy: { slotNumber: 'asc' } },
         _count: { select: { winTimes: true } },
       },
       orderBy: { startedAt: 'desc' },
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     const past = await prisma.classicGiveaway.findMany({
       where: { status: { in: ['ended', 'cancelled'] } },
       include: {
-        winTimes: { where: { isWon: true }, orderBy: { slotNumber: 'asc' } },
+        winTimes: { orderBy: { slotNumber: 'asc' } },
         _count: { select: { winTimes: true } },
       },
       orderBy: { startedAt: 'desc' },
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     const groupTitleMap = new Map(groups.map((g: { groupId: string; title: string | null }) => [g.groupId, g.title]))
 
     function serialize(g: any) {
+      const wonSlots = g.winTimes.filter((w: any) => w.isWon)
       return {
         id: g.id,
         groupId: g.groupId,
@@ -44,9 +45,17 @@ export async function GET(request: NextRequest) {
         endsAt: g.endsAt,
         endedAt: g.endedAt,
         totalSlots: g._count.winTimes,
-        wonCount: g.winTimes.length,
-        winners: g.winTimes.map((w: any) => ({
+        wonCount: wonSlots.length,
+        winners: wonSlots.map((w: any) => ({
           name: w.winnerUsername ? `@${w.winnerUsername}` : w.winnerFirstName || 'Bilinmiyor',
+          wonAt: w.wonAt,
+        })),
+        // Tüm anlar (geçmiş + gelecek) - admin talebiyle her zaman gösteriliyor.
+        allSlots: g.winTimes.map((w: any) => ({
+          slotNumber: w.slotNumber,
+          winTime: w.winTime,
+          isWon: w.isWon,
+          winnerName: w.isWon ? (w.winnerUsername ? `@${w.winnerUsername}` : w.winnerFirstName || 'Bilinmiyor') : null,
           wonAt: w.wonAt,
         })),
       }

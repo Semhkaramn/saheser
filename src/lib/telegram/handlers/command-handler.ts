@@ -7,6 +7,8 @@ import { handleAdminPanelCommand } from './admin-panel-handler'
 import { handleRandyGroupCommand, handleNumberGroupCommand } from '../services/randy-quick-draft-service'
 import { runTagging, stopTaggingRun } from '../services/tagging-service'
 import { checkTelegramAdmin, sendTelegramMessage, deleteTelegramMessage } from '../core'
+import { prisma } from '@/lib/prisma'
+import { ISTATISTIK, formatMention } from '../taslaklar'
 
 /**
  * Komut handler (/ ile başlayan mesajlar)
@@ -75,6 +77,14 @@ export async function handleCommand(message: any) {
       await sendTelegramMessage(message.chat.id, lines.filter(Boolean).join('\n'))
       return NextResponse.json({ ok: true })
     }
+
+    // .inf / !inf / /inf - admin bir kullanıcının istatistiğini görsün.
+    // Üç şekilde kullanılabilir: birinin mesajına REPLY yaparak ".inf" yaz,
+    // ".inf 123456789" (Telegram ID), ya da ".inf kullaniciadi" (TG kullanıcı adı).
+    case '.inf':
+    case '!inf':
+    case '/inf':
+      return await handleInfoCommand(message)
 
     // Roll komutları için roll handler'ı kullan
     case 'roll':
@@ -171,4 +181,95 @@ export async function handleCommand(message: any) {
       // Bilinmeyen komut - sessiz kal
       return NextResponse.json({ ok: true })
   }
+}
+
+/**
+ * .inf / !inf / /inf komutu - SADECE adminler kullanabilir. Bir üyenin
+ * istatistiğini üç şekilde görebilir:
+ * 1) Birinin mesajına REPLY yaparak ".inf" yaz
+ * 2) ".inf 123456789" (Telegram ID)
+ * 3) ".inf kullaniciadi" (Telegram kullanıcı adı, @ olsun olmasın fark etmez)
+ */
+async function handleInfoCommand(message: any) {
+  const chatId = message.chat.id
+  const chatType = message.chat.type
+
+  if (chatType !== 'group' && chatType !== 'supergroup') {
+    return NextResponse.json({ ok: true })
+  }
+
+  const isAdmin = await checkTelegramAdmin(chatId, message.from.id)
+  if (!isAdmin) return NextResponse.json({ ok: true })
+
+  const text = String(message.text || '').trim()
+  const argument = text.split(/\s+/).slice(1).join(' ').replace(/^@/, '').trim()
+
+  let targetTelegramId: string | null = null
+  let targetUsername: string | null = null
+  let targetFirstName: string | null = null
+
+  if (message.reply_to_message?.from) {
+    targetTelegramId = String(message.reply_to_message.from.id)
+    targetUsername = message.reply_to_message.from.username || null
+    targetFirstName = message.reply_to_message.from.first_name || null
+  } else if (argument) {
+    if (/^\d+$/.test(argument)) {
+      targetTelegramId = argument
+    } else {
+      targetUsername = argument
+    }
+  }
+
+  if (!targetTelegramId && !targetUsername) {
+    await sendTelegramMessage(
+      chatId,
+      'ℹ️ Kullanım: birinin mesajına reply yaparak ".inf" yaz, ya da ".inf 123456789" (ID) veya ".inf kullaniciadi" şeklinde kullan.'
+    )
+    return NextResponse.json({ ok: true })
+  }
+
+  const telegramUser = await prisma.telegramGroupUser.findFirst({
+    where: targetTelegramId ? { telegramId: targetTelegramId } : { username: { equals: targetUsername!, mode: 'insensitive' } },
+  })
+
+  if (!telegramUser) {
+    await sendTelegramMessage(chatId, '❌ Bu kullanıcı için hiç kayıt bulunamadı (hiç mesaj atmamış olabilir).')
+    return NextResponse.json({ ok: true })
+  }
+
+  const resolvedTelegramId = telegramUser.telegramId
+  const firstName = targetFirstName || telegramUser.firstName || 'Kullanıcı'
+
+  const stats = {
+    dailyMessageCount: telegramUser.dailyMessageCount,
+    weeklyMessageCount: telegramUser.weeklyMessageCount,
+    monthlyMessageCount: telegramUser.monthlyMessageCount,
+    messageCount: telegramUser.messageCount,
+  }
+
+  const [siteUser, randyParticipationCount, randyWinCount, classicWinCount] = await Promise.all([
+    prisma.user.findUnique({ where: { telegramId: resolvedTelegramId }, include: { rank: true } }),
+    prisma.randyParticipant.count({ where: { telegramId: resolvedTelegramId } }),
+    prisma.randyWinner.count({ where: { telegramId: resolvedTelegramId } }),
+    prisma.classicGiveawayWinTime.count({ where: { winnerTelegramId: resolvedTelegramId } }),
+  ])
+
+  const siteStats = siteUser
+    ? {
+        points: siteUser.points,
+        xp: siteUser.xp,
+        rankName: siteUser.rank?.name || null,
+        dailySpinsLeft: siteUser.dailySpinsLeft,
+        isBanned: siteUser.isBanned,
+      }
+    : null
+
+  const randyStats = { participated: randyParticipationCount, won: randyWinCount }
+
+  const mention = formatMention(resolvedTelegramId, telegramUser.username, firstName)
+  let text2 = `${mention}\n\n${ISTATISTIK.FORMAT(firstName, stats, siteStats, randyStats)}`
+  text2 += `\n\n<b>🎲 Klasik Çekiliş</b>\n🏆 Kazandığı: ${classicWinCount}`
+
+  await sendTelegramMessage(chatId, text2)
+  return NextResponse.json({ ok: true })
 }

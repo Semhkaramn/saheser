@@ -274,6 +274,14 @@ export async function handleMessage(message: any) {
   const chatId = message.chat.id
   const chatType = message.chat.type
   const messageText = message.text || ''
+  // ⚠️ FIX: Eskiden SADECE düz yazı mesajları sayılıyordu - biri sticker,
+  // GIF, foto, video ya da sesli mesaj atarsa (yazı eklemeden) hiç
+  // puan/mesaj sayımına girmiyordu. Bunları da geçerli bir mesaj olarak
+  // sayıyoruz - "uzunluk" ölçülemeyeceği için ayrı bir bayrakla işaretliyoruz.
+  const isMediaMessage = !!(
+    message.sticker || message.animation || message.photo || message.video ||
+    message.voice || message.video_note || message.document || message.audio
+  )
 
   // 🤖 BOT ADMİN PANELİ - private chat'te bekleyen bir mod varsa (toplu mesaj
   // yazımı, Randy mesajı/kazanan sayısı) önce onu işle, normal akışa girme
@@ -525,6 +533,7 @@ export async function handleMessage(message: any) {
       firstName: message.from?.first_name,
       lastName: message.from?.last_name,
       messageText,
+      isMediaMessage,
       chatId
     })
   )

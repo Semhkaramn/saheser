@@ -778,6 +778,7 @@ interface GiveawayRow {
   totalSlots: number
   wonCount: number
   winners: { name: string; wonAt: string | null }[]
+  allSlots: { slotNumber: number; winTime: string; isWon: boolean; winnerName: string | null; wonAt: string | null }[]
 }
 
 function ClassicGiveawayTab() {
@@ -812,8 +813,8 @@ function ClassicGiveawayTab() {
     <div className="space-y-6">
       <p className="text-sm admin-text-muted">
         Aktif klasik çekilişlerin ilerlemesini canlı izle (15 saniyede bir otomatik yenilenir).
-        Sürpriz unsuru bozulmasın diye <b>gelecek kazanma anları burada da gösterilmiyor</b> -
-        sadece şu ana kadar kazanılanlar görünüyor.
+        Tüm kazanma anları (geçmiş ve gelecek) burada görünüyor - üyelere hiç gösterilmiyor,
+        sadece admin panelinde.
       </p>
 
       <div>
@@ -845,7 +846,7 @@ function ClassicGiveawayTab() {
                   Başladı: {new Date(g.startedAt).toLocaleString('tr-TR')} · Bitiş: {new Date(g.endsAt).toLocaleString('tr-TR')}
                 </p>
                 {g.winners.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5 mb-3">
                     {g.winners.map((w, i) => (
                       <span key={i} className="text-xs px-2 py-1 rounded-lg bg-white/5 admin-text-secondary">
                         🏆 {w.name}
@@ -853,6 +854,23 @@ function ClassicGiveawayTab() {
                     ))}
                   </div>
                 )}
+                <div className="mt-2 pt-2 border-t border-white/5">
+                  <p className="text-[11px] uppercase tracking-wide admin-text-muted mb-1.5">
+                    Kazanma Anları (tüm slotlar - geçmiş ve gelecek)
+                  </p>
+                  <div className="space-y-1">
+                    {g.allSlots.map((slot) => (
+                      <div key={slot.slotNumber} className="flex items-center justify-between text-xs bg-white/[0.02] rounded-lg px-2.5 py-1.5">
+                        <span className="admin-text-muted">#{slot.slotNumber} — {new Date(slot.winTime).toLocaleString('tr-TR')}</span>
+                        {slot.isWon ? (
+                          <span className="text-emerald-400 font-semibold">🏆 {slot.winnerName}</span>
+                        ) : (
+                          <span className="text-amber-400">⏳ Bekleniyor</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             ))}
           </div>

@@ -1062,6 +1062,11 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
       const winnersText = status && status.winners.length > 0
         ? '\n\n🏆 Kazananlar:\n' + status.winners.map((w: { name: string }, i: number) => `${i + 1}. ${w.name}`).join('\n')
         : ''
+      const slotsText = status && status.allSlots.length > 0
+        ? '\n\n🕐 Tüm Kazanma Anları:\n' + status.allSlots.map((s: { slotNumber: number; winTime: Date; isWon: boolean; winnerName: string | null }) =>
+            `${s.slotNumber}. ${s.winTime.toLocaleString('tr-TR')} - ${s.isWon ? `🏆 ${s.winnerName}` : '⏳ Bekleniyor'}`
+          ).join('\n')
+        : ''
       const statusText = status
         ? [
             `⚠️ Bu grupta zaten aktif bir klasik çekiliş var.`,
@@ -1071,8 +1076,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
             `⏳ Kalan: ${status.remainingCount}`,
             `🕐 Bitiş: ${active.endsAt.toLocaleString('tr-TR')}`,
             winnersText,
-            '',
-            'ℹ️ Gelecek kazanma anları bilerek gösterilmiyor - sürpriz unsuru bu şekilde korunuyor.',
+            slotsText,
           ].filter(Boolean).join('\n')
         : '⚠️ Bu grupta zaten aktif bir klasik çekiliş var.'
 

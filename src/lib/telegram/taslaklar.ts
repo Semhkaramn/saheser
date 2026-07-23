@@ -27,7 +27,7 @@ export const GENEL = {
     `🎡 Her gün şans çarkını çevir, ekstra puan topla\n` +
     `🛒 Kazandığın puanlarla marketten ödüller al\n` +
     `🏆 Liderlik tablosunda en üste çık!\n\n` +
-    `👉 Hemen hesabını bağla: <a href="${SITE_CONFIG.appUrl}/profile/social-media">${SITE_CONFIG.siteName}</a>`,
+    `👉 Hemen hesabını bağla: <a href="${SITE_CONFIG.appUrl}/profil/sosyal-medya">${SITE_CONFIG.siteName}</a>`,
 
   // Hata mesajları
   HATA_GENEL: '❌ Bir hata oluştu. Lütfen tekrar deneyin.',
