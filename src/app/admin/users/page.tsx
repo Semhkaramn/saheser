@@ -157,6 +157,7 @@ export default function AdminUsersPage() {
         search: searchTerm,
         sortBy,
         sortOrder,
+        userType,
         page: currentPage.toString(),
         limit: limit.toString()
       })
@@ -172,14 +173,6 @@ export default function AdminUsersPage() {
       const data = await response.json()
 
       let filteredUsers = data.users || []
-
-      if (userType === 'site') {
-        filteredUsers = filteredUsers.filter((u: User) => u.isRegistered)
-      } else if (userType === 'telegram') {
-        filteredUsers = filteredUsers.filter((u: User) => !u.isRegistered)
-      } else if (userType === 'linked') {
-        filteredUsers = filteredUsers.filter((u: User) => u.isRegistered && u.hasTelegram)
-      }
 
       setUsers(filteredUsers)
       setPagination(data.pagination)

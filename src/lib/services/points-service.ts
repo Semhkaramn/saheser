@@ -7,6 +7,7 @@ import { sendTelegramMessage } from '@/lib/telegram/core'
 import { RUTBE } from '@/lib/telegram/taslaklar'
 import { logActivity } from '@/lib/services/activity-log-service'
 import { GROUP_ANONYMOUS_BOT_ID, TELEGRAM_SERVICE_ACCOUNT_ID } from '@/lib/telegram/utils/anonymous-admin'
+import { autoClaimAllEligibleTasks } from '@/lib/services/task-service'
 
 // Types
 export interface MessageRewardInput {
@@ -352,6 +353,12 @@ export async function processMessageReward(
       }
     }).catch(err => console.error('Rank up log error:', err))
   }
+
+  // 1️⃣3️⃣ Mesaj sayısı görevlerini otomatik kontrol et - tamamlandıysa ödülü
+  // hemen ver, kullanıcının "ödülü al" butonuna basmasını beklemeden.
+  autoClaimAllEligibleTasks(existingTgUser.linkedUserId!, 'send_messages').catch((err) =>
+    console.error('Otomatik görev ödülü hatası:', err)
+  )
 
   return {
     success: true,

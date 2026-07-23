@@ -5,7 +5,7 @@ import { startRandy, endRandy } from '../services/randy-bot-service'
 import { sendBroadcastToAllUsers } from '../services/broadcast-service'
 import { runTagging, stopTaggingRun, getTaggingRunStatus } from '../services/tagging-service'
 import { isCrossBanEnabled, setCrossBanEnabled } from '../services/cross-ban-service'
-import { createClassicGiveaway, endClassicGiveaway, cancelClassicGiveaway, getActiveClassicGiveaway } from '../services/classic-giveaway-service'
+import { createClassicGiveaway, endClassicGiveaway, cancelClassicGiveaway, getActiveClassicGiveaway, getClassicGiveawayStatus } from '../services/classic-giveaway-service'
 import { getGptSettings, setGptSettings } from '../services/gpt-service'
 import { getActivityContestSettings, startActivityContest, stopActivityContestAndAnnounce, getActivityRewards, setActivityReward } from '../services/activity-rewards-service'
 import { getWeeklyRewardSettings, setWeeklyRewardSettings, getWeeklyRewards, setWeeklyReward } from '../services/weekly-rewards-service'
@@ -44,6 +44,7 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
   const contestRunning = contest?.isRunning ?? false
   const weeklySettings = await getWeeklyRewardSettings(group.groupId)
   const weeklyOn = weeklySettings?.enabled ?? false
+  const activeGiveaway = isChannel ? null : await getActiveClassicGiveaway(group.groupId)
 
   const rows: { text: string; callback_data: string }[][] = []
 
@@ -58,7 +59,10 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
   } else {
     rows.push([{ text: '📢 Üyelere Mesaj Gönder', callback_data: `admbroadcast:${group.groupId}` }])
     rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
-    rows.push([{ text: '🎁 Klasik Çekiliş Başlat', callback_data: `admgiveaway_new:${group.groupId}` }])
+    rows.push([{
+      text: activeGiveaway ? '📊 Klasik Çekiliş: Devam Ediyor (Durum)' : '🎁 Klasik Çekiliş Başlat',
+      callback_data: `admgiveaway_new:${group.groupId}`,
+    }])
     rows.push([{ text: '🏷️ Üyeleri Etiketle', callback_data: `admtag_new:${group.groupId}` }])
     rows.push([{ text: '🚫 Etiketleme Hariç Listesi', callback_data: `admtagexcl:${group.groupId}` }])
     rows.push([{ text: contestRunning ? '📈 Aktiflik Yarışması: Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` }])
@@ -1054,7 +1058,25 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
         update: { mode: null, groupId },
         create: { telegramId, groupId },
       })
-      await editTelegramMessage(chatId, messageId, '⚠️ Bu grupta zaten aktif bir klasik çekiliş var.', {
+      const status = await getClassicGiveawayStatus(groupId)
+      const winnersText = status && status.winners.length > 0
+        ? '\n\n🏆 Kazananlar:\n' + status.winners.map((w: { name: string }, i: number) => `${i + 1}. ${w.name}`).join('\n')
+        : ''
+      const statusText = status
+        ? [
+            `⚠️ Bu grupta zaten aktif bir klasik çekiliş var.`,
+            '',
+            `🎁 Ödül: ${active.prizeText}`,
+            `📊 İlerleme: ${status.wonCount}/${status.totalSlots} kazanan bulundu`,
+            `⏳ Kalan: ${status.remainingCount}`,
+            `🕐 Bitiş: ${active.endsAt.toLocaleString('tr-TR')}`,
+            winnersText,
+            '',
+            'ℹ️ Gelecek kazanma anları bilerek gösterilmiyor - sürpriz unsuru bu şekilde korunuyor.',
+          ].filter(Boolean).join('\n')
+        : '⚠️ Bu grupta zaten aktif bir klasik çekiliş var.'
+
+      await editTelegramMessage(chatId, messageId, statusText, {
         inline_keyboard: [
           [{ text: '🏁 Bitir (kalanları hemen kazandır)', callback_data: `admgiveaway_end:${active.id}` }],
           [{ text: '🗑️ İptal Et', callback_data: `admgiveaway_cancel:${active.id}` }],

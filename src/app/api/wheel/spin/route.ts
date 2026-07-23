@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth'
 import { getTurkeyDate, getTurkeyToday } from '@/lib/utils'
 import { getCachedData, CacheKeys, CacheTags, CacheTTL, invalidateCache } from '@/lib/enhanced-cache'
 import { logWheelSpin, extractRequestInfo } from '@/lib/services/activity-log-service'
+import { autoClaimAllEligibleTasks } from '@/lib/services/task-service'
 
 export async function POST(request: NextRequest) {
   try {
@@ -164,6 +165,11 @@ export async function POST(request: NextRequest) {
       result.pointsWon,
       result.wheelSpinId,
       requestInfo
+    )
+
+    // Çark görevlerini otomatik kontrol et - tamamlandıysa ödülü hemen ver.
+    autoClaimAllEligibleTasks(userId, 'spin_wheel').catch((err) =>
+      console.error('Otomatik görev ödülü hatası:', err)
     )
 
     return NextResponse.json(result)

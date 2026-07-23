@@ -386,6 +386,156 @@ export async function claimTaskReward(userId: string, taskId: string) {
   return { success: true, rewards: { points: task.pointsReward, xp: task.xpReward }, pointsEarned: task.pointsReward, xpEarned: task.xpReward, newPoints: result.points, newXp: result.xp }
 }
 
+// ========== OTOMATİK GÖREV ÖDÜLLENDİRME ==========
+// Kullanıcı bir görevi tamamladığı AN (mesaj atınca, çark çevirince vb.)
+// otomatik olarak ödülünü alsın diye - "ödülü al" butonuna tıklamaya gerek
+// kalmadan. message-handler.ts (mesaj sayısı görevleri için) ve çark çevirme
+// API'sinden (çark görevleri için) çağrılıyor.
+
+/**
+ * Tek bir görevin şu an ödül almaya uygun olup olmadığını kontrol eder ve
+ * uygunsa hemen ödüllendirir. claimTaskReward'daki mantığın aynısı, ama hata
+ * fırlatmak yerine sessizce null döner (henüz uygun değilse).
+ */
+async function tryAutoClaimTask(userId: string, task: any, user: { telegramId: string | null; weeklyWheelStreak: number; lastWheelSpinDate: Date | null }) {
+  const now = getTurkeyDate()
+  const todayStart = getTurkeyToday()
+  const weekStart = getTurkeyWeekStart()
+
+  const yesterdayStart = new Date(todayStart)
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1)
+
+  let currentStreak = user.weeklyWheelStreak
+  const lastSpinDate = user.lastWheelSpinDate ? new Date(user.lastWheelSpinDate) : null
+  if (currentStreak > 0 && lastSpinDate && lastSpinDate < yesterdayStart) currentStreak = 0
+
+  if (task.category === 'streak') {
+    if (currentStreak < task.targetValue) return null
+
+    const lastStreakReward = await prisma.userTaskReward.findFirst({
+      where: { userId, taskId: task.id },
+      orderBy: { claimedAt: 'desc' }
+    })
+    if (lastStreakReward) {
+      const rewardClaimedAt = new Date(lastStreakReward.claimedAt)
+      const isNewStreak = lastSpinDate && lastSpinDate > rewardClaimedAt
+      if (!isNewStreak) return null
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: userId },
+        data: { points: { increment: task.pointsReward }, xp: { increment: task.xpReward }, weeklyWheelStreak: 0 }
+      })
+      await tx.userTaskReward.create({
+        data: { userId, taskId: task.id, claimedAt: now, pointsEarned: task.pointsReward, xpEarned: task.xpReward }
+      })
+      if (task.pointsReward > 0) {
+        await tx.pointHistory.create({
+          data: { userId, amount: task.pointsReward, type: 'streak_bonus', description: `${task.targetValue} günlük çark serisi bonusu`, relatedId: task.id, createdAt: now }
+        })
+      }
+      return updatedUser
+    })
+
+    await logTaskComplete(userId, task.id, task.title, task.pointsReward, task.xpReward)
+    return { title: task.title, points: task.pointsReward, xp: task.xpReward }
+  }
+
+  let existingReward = null
+  if (task.category === 'permanent') {
+    existingReward = await prisma.userTaskReward.findFirst({ where: { userId, taskId: task.id } })
+  } else {
+    const periodStart = task.category === 'daily' ? todayStart : weekStart
+    existingReward = await prisma.userTaskReward.findFirst({ where: { userId, taskId: task.id, claimedAt: { gte: periodStart } } })
+  }
+  if (existingReward) return null
+
+  let currentValue = 0
+  if (task.taskType === 'send_messages') {
+    if (user.telegramId) {
+      const telegramUser = await prisma.telegramGroupUser.findUnique({
+        where: { telegramId: user.telegramId },
+        select: { messageCount: true, dailyMessageCount: true, weeklyMessageCount: true, lastDailyReset: true, lastWeeklyReset: true }
+      })
+      if (telegramUser) {
+        if (task.category === 'permanent') {
+          currentValue = telegramUser.messageCount || 0
+        } else if (task.category === 'daily') {
+          const lastReset = telegramUser.lastDailyReset ? new Date(telegramUser.lastDailyReset) : null
+          if (lastReset && lastReset >= todayStart) currentValue = telegramUser.dailyMessageCount || 0
+        } else {
+          const lastReset = telegramUser.lastWeeklyReset ? new Date(telegramUser.lastWeeklyReset) : null
+          if (lastReset && lastReset >= weekStart) currentValue = telegramUser.weeklyMessageCount || 0
+        }
+      }
+    }
+  } else if (task.taskType === 'spin_wheel') {
+    if (task.category === 'permanent') {
+      currentValue = await prisma.wheelSpin.count({ where: { userId } })
+    } else {
+      const spinStart = task.category === 'daily' ? todayStart : weekStart
+      currentValue = await prisma.wheelSpin.count({ where: { userId, spunAt: { gte: spinStart } } })
+    }
+  }
+
+  if (currentValue < task.targetValue) return null
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: { points: { increment: task.pointsReward }, xp: { increment: task.xpReward } }
+    })
+    await tx.userTaskReward.create({
+      data: { userId, taskId: task.id, claimedAt: now, pointsEarned: task.pointsReward, xpEarned: task.xpReward }
+    })
+    if (task.pointsReward > 0) {
+      await tx.pointHistory.create({
+        data: { userId, amount: task.pointsReward, type: 'task_reward', description: `Görev tamamlandı: ${task.title}`, relatedId: task.id, createdAt: now }
+      })
+    }
+  })
+
+  await logTaskComplete(userId, task.id, task.title, task.pointsReward, task.xpReward)
+  return { title: task.title, points: task.pointsReward, xp: task.xpReward }
+}
+
+/**
+ * Bir kullanıcının TÜM görevlerini kontrol eder, uygun olan her birini
+ * otomatik ödüllendirir. Mesaj atınca ya da çark çevirince çağrılır - kısıtlı
+ * bir "taskType" verilirse (perf için) sadece o türdeki görevleri kontrol
+ * eder (örn. mesaj atınca sadece 'send_messages' türü görevlere bakmak
+ * yeterli, gereksiz sorgu yapılmaz).
+ */
+export async function autoClaimAllEligibleTasks(userId: string, onlyTaskType?: 'send_messages' | 'spin_wheel') {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, telegramId: true, weeklyWheelStreak: true, lastWheelSpinDate: true }
+    })
+    if (!user) return []
+
+    const tasks = await prisma.task.findMany({
+      where: {
+        isActive: true,
+        ...(onlyTaskType ? { taskType: onlyTaskType } : {}),
+      },
+    })
+
+    const claimed: { title: string; points: number; xp: number }[] = []
+    for (const task of tasks) {
+      const result = await tryAutoClaimTask(userId, task, user)
+      if (result) claimed.push(result)
+    }
+    return claimed
+  } catch (error) {
+    // Otomatik ödüllendirme bir hataya takılırsa, mesaj/çark akışının
+    // KENDİSİNİ bozmamalı - sessizce logla, devam et.
+    console.error('❌ Otomatik görev ödüllendirme hatası:', error)
+    return []
+  }
+}
+
 // ========== HELPER FUNCTIONS ==========
 
 function formatTasksForGuest(tasks: any[]) {

@@ -755,11 +755,132 @@ export default function BotManagementPage() {
           <TabsTrigger value="groups">Gruplar</TabsTrigger>
           <TabsTrigger value="randy">Randy</TabsTrigger>
           <TabsTrigger value="crossban">Çapraz Ban</TabsTrigger>
+          <TabsTrigger value="giveaway">Klasik Çekiliş</TabsTrigger>
         </TabsList>
         <TabsContent value="groups" className="mt-6"><GroupsTab /></TabsContent>
         <TabsContent value="randy" className="mt-6"><RandyTab /></TabsContent>
         <TabsContent value="crossban" className="mt-6"><CrossBanTab /></TabsContent>
+        <TabsContent value="giveaway" className="mt-6"><ClassicGiveawayTab /></TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+interface GiveawayRow {
+  id: string
+  groupId: string
+  groupTitle: string
+  prizeText: string
+  status: string
+  startedAt: string
+  endsAt: string
+  endedAt: string | null
+  totalSlots: number
+  wonCount: number
+  winners: { name: string; wonAt: string | null }[]
+}
+
+function ClassicGiveawayTab() {
+  const [active, setActive] = useState<GiveawayRow[]>([])
+  const [past, setPast] = useState<GiveawayRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    load()
+    // ⏱️ "Anlık" görünsün diye 15 saniyede bir otomatik yeniliyoruz - admin
+    // sayfayı açık tutup ilerlemeyi (kaç kazanan bulundu) canlı izleyebilir.
+    const interval = setInterval(load, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
+  async function load() {
+    try {
+      const res = await fetch('/api/admin/classic-giveaway')
+      const data = await res.json()
+      setActive(data.active || [])
+      setPast(data.past || [])
+    } catch {
+      toast.error('Yüklenemedi')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) return <p className="admin-text-muted text-sm">Yükleniyor...</p>
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm admin-text-muted">
+        Aktif klasik çekilişlerin ilerlemesini canlı izle (15 saniyede bir otomatik yenilenir).
+        Sürpriz unsuru bozulmasın diye <b>gelecek kazanma anları burada da gösterilmiyor</b> -
+        sadece şu ana kadar kazanılanlar görünüyor.
+      </p>
+
+      <div>
+        <h3 className="text-sm font-bold admin-text-primary mb-3">🟢 Aktif Çekilişler</h3>
+        {active.length === 0 ? (
+          <div className="admin-card p-6 text-center">
+            <p className="text-sm admin-text-muted">Şu anda aktif bir klasik çekiliş yok.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {active.map((g) => (
+              <div key={g.id} className="admin-card p-4">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <div>
+                    <p className="font-semibold admin-text-primary">{g.groupTitle}</p>
+                    <p className="text-xs admin-text-muted">🎁 {g.prizeText}</p>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold">
+                    {g.wonCount}/{g.totalSlots} kazanan bulundu
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-emerald-500 transition-all"
+                    style={{ width: `${g.totalSlots > 0 ? (g.wonCount / g.totalSlots) * 100 : 0}%` }}
+                  />
+                </div>
+                <p className="text-xs admin-text-muted mb-2">
+                  Başladı: {new Date(g.startedAt).toLocaleString('tr-TR')} · Bitiş: {new Date(g.endsAt).toLocaleString('tr-TR')}
+                </p>
+                {g.winners.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {g.winners.map((w, i) => (
+                      <span key={i} className="text-xs px-2 py-1 rounded-lg bg-white/5 admin-text-secondary">
+                        🏆 {w.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-sm font-bold admin-text-primary mb-3">📜 Geçmiş Çekilişler</h3>
+        {past.length === 0 ? (
+          <p className="text-sm admin-text-muted">Henüz tamamlanmış bir çekiliş yok.</p>
+        ) : (
+          <div className="admin-card divide-y divide-white/5">
+            {past.map((g) => (
+              <div key={g.id} className="p-3 flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <p className="text-sm font-semibold admin-text-primary">{g.groupTitle} — {g.prizeText}</p>
+                  <p className="text-xs admin-text-muted">
+                    {g.status === 'cancelled' ? '🗑️ İptal edildi' : '✅ Tamamlandı'} · {g.wonCount}/{g.totalSlots} kazanan
+                  </p>
+                </div>
+                <span className="text-xs admin-text-muted">
+                  {g.endedAt ? new Date(g.endedAt).toLocaleDateString('tr-TR') : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

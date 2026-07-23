@@ -153,11 +153,22 @@ export async function checkAndAwardClassicWinner(
 
   const now = new Date()
 
-  await prisma.$transaction(async (tx) => {
-    await tx.classicGiveawayWinTime.update({
-      where: { id: slot.id },
+  const claimed = await prisma.$transaction(async (tx) => {
+    // ⚠️ KRİTİK: "slot" burada okunduktan sonra, aşağıdaki güncellemeye kadar
+    // geçen sürede BAŞKA bir mesaj da AYNI slotu "boş" (isWon:false) görüp
+    // aynı anda kazanmaya çalışabilir (özellikle çekiliş anının etrafında,
+    // grup hareketliyse bu ihtimal gerçek). Bu yüzden update'i "isWon: false"
+    // ŞARTIYLA yapıyoruz ve KAÇ satırın etkilendiğine bakıyoruz - eğer 0 ise,
+    // başka biri bizden önce davranmış demektir, biz kazanmadık.
+    const result = await tx.classicGiveawayWinTime.updateMany({
+      where: { id: slot.id, isWon: false },
       data: { winnerTelegramId: telegramId, winnerUsername: username, winnerFirstName: firstName, isWon: true, wonAt: now },
     })
+
+    if (result.count === 0) {
+      // Yarışı kaybettik - başka bir kullanıcı bu slotu bizden önce aldı.
+      return false
+    }
 
     await tx.classicGiveawayUserWin.upsert({
       where: { groupId_telegramId: { groupId, telegramId } },
@@ -169,13 +180,46 @@ export async function checkAndAwardClassicWinner(
     if (remaining === 0) {
       await tx.classicGiveaway.update({ where: { id: giveaway.id }, data: { status: 'ended', endedAt: now } })
     }
+
+    return true
   })
+
+  if (!claimed) return null
 
   return { giveawayId: giveaway.id, prizeText: giveaway.prizeText, pinWinnerMessage: giveaway.pinWinnerMessage }
 }
 
 export async function endClassicGiveaway(id: string) {
   await prisma.classicGiveaway.update({ where: { id }, data: { status: 'ended', endedAt: new Date() } })
+}
+
+/**
+ * Admin'e aktif çekilişin İLERLEMESİNİ gösterir (kaç kazanan bulundu, ne
+ * zaman bitecek) - ama GELECEKTEKİ kazanma anlarını asla göstermez, sürpriz
+ * unsuru bozulmasın diye. "ben göremiyorum" şikayeti için eklendi.
+ */
+export async function getClassicGiveawayStatus(groupId: string) {
+  const giveaway = await getActiveClassicGiveaway(groupId)
+  if (!giveaway) return null
+
+  const slots = await prisma.classicGiveawayWinTime.findMany({
+    where: { giveawayId: giveaway.id },
+    orderBy: { slotNumber: 'asc' },
+  })
+
+  const wonSlots = slots.filter((s: { isWon: boolean }) => s.isWon)
+  const remainingCount = slots.length - wonSlots.length
+
+  return {
+    giveaway,
+    totalSlots: slots.length,
+    wonCount: wonSlots.length,
+    remainingCount,
+    winners: wonSlots.map((s: { winnerUsername: string | null; winnerFirstName: string | null; wonAt: Date | null }) => ({
+      name: s.winnerUsername ? `@${s.winnerUsername}` : s.winnerFirstName || 'Bilinmiyor',
+      wonAt: s.wonAt,
+    })),
+  }
 }
 
 export async function cancelClassicGiveaway(id: string) {

@@ -26,10 +26,17 @@ export async function GET(request: NextRequest) {
     const sortOrder = searchParams.get('sortOrder') || 'desc' // asc, desc
     const bannedFilter = searchParams.get('banned') // 'true', 'false', or null (TÜM KULLANICILAR)
     const messageFilter = searchParams.get('hasMessages') // 'true', 'false', or null (TÜM KULLANICILAR)
+    // ⚠️ FIX: "userType" (site/telegram/linked) eskiden sadece frontend'de,
+    // veri geldikten SONRA filtreleniyordu - ama sayfalama sayıları (toplam
+    // kaç kayıt var) bu filtre uygulanmadan ÖNCEki haliyle hesaplanıyordu.
+    // Bu da "arama/filtre sonucunda hiçbir şey çıkmıyor gibi" hissine yol
+    // açan sayfa/sonuç tutarsızlıklarına sebep oluyordu. Artık filtre
+    // tamamen backend'de, sorgunun kendisinde uygulanıyor.
+    const userType = searchParams.get('userType') || 'all' // all, site, telegram, linked
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '10')
 
-    console.log('📊 Statistics API called with params:', { search, sortBy, sortOrder, bannedFilter, messageFilter, page, limit })
+    console.log('📊 Statistics API called with params:', { search, sortBy, sortOrder, bannedFilter, messageFilter, userType, page, limit })
 
     const today = getTurkeyToday()
     const weekAgo = getTurkeyDateAgo(7)
@@ -37,26 +44,39 @@ export async function GET(request: NextRequest) {
 
     // ========== TÜM KULLANICILARI BİRLEŞTİR (Site + Telegram) ==========
 
+    // "telegram" (sadece Telegram'da olanlar) seçiliyse, site kullanıcıları
+    // hiç sorgulanmasın - sonuç zaten hepsi ekarte edilecekti.
+    const skipSiteUsers = userType === 'telegram'
+    // "site" ya da "linked" seçiliyse, sadece-Telegram kullanıcıları hiç
+    // sorgulanmasın.
+    const skipTelegramOnly = userType === 'site' || userType === 'linked'
+
     // 1. Tüm User kayıtlarını çek (site kullanıcıları)
     const userWhereClause: any = {}
     if (search) {
       userWhereClause.OR = [
         { siteUsername: { contains: search, mode: 'insensitive' } },
+        { telegramUsername: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
         { firstName: { contains: search, mode: 'insensitive' } },
         { lastName: { contains: search, mode: 'insensitive' } },
         { telegramId: { contains: search } }
       ]
     }
+    if (bannedFilter === 'true') userWhereClause.isBanned = true
+    if (bannedFilter === 'false') userWhereClause.isBanned = false
+    // "linked" (hem site hem Telegram'a bağlı) seçiliyse, telegramGroupUser
+    // ilişkisi olmayan site kullanıcılarını ekarte et.
+    if (userType === 'linked') userWhereClause.telegramGroupUser = { isNot: null }
 
     // 🚀 CRITICAL FIX: Pagination at DB level to prevent memory explosion
     // Calculate pagination for site users
-    const totalSiteUsersCount = await prisma.user.count({ where: userWhereClause })
+    const totalSiteUsersCount = skipSiteUsers ? 0 : await prisma.user.count({ where: userWhereClause })
 
     // Eğer mesaja göre sıralama isteniyorsa ayrı bir yaklaşım kullanmalıyız
     const isMessageSort = sortBy === 'messages'
 
-    const siteUsers = await prisma.user.findMany({
+    const siteUsers = skipSiteUsers ? [] : await prisma.user.findMany({
       where: userWhereClause,
       include: {
         rank: {
@@ -105,10 +125,13 @@ export async function GET(request: NextRequest) {
         { telegramId: { contains: search } }
       ]
     }
+    // Sadece-Telegram kullanıcıların banlanma durumu yok (isBanned her zaman
+    // false) - "sadece banlıları göster" seçiliyse bunları tamamen ekarte et.
+    if (bannedFilter === 'true') telegramOnlyWhereClause.id = 'never-matches'
 
-    const totalTelegramOnlyCount = await prisma.telegramGroupUser.count({ where: telegramOnlyWhereClause })
+    const totalTelegramOnlyCount = skipTelegramOnly ? 0 : await prisma.telegramGroupUser.count({ where: telegramOnlyWhereClause })
 
-    const telegramOnlyUsers = await prisma.telegramGroupUser.findMany({
+    const telegramOnlyUsers = skipTelegramOnly ? [] : await prisma.telegramGroupUser.findMany({
       where: telegramOnlyWhereClause,
       take: isMessageSort ? undefined : Math.max(0, limit - siteUsers.length),
       skip: isMessageSort ? undefined : Math.max(0, (page - 1) * limit - totalSiteUsersCount),
