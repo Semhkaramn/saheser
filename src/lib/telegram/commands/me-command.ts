@@ -65,7 +65,9 @@ export async function handleMeCommand(message: any) {
     // görünsün istendi. RandyParticipant/RandyWinner doğrudan telegramId
     // ile tutuluyor, site hesabına bağlı olmasına gerek yok.
     const [randyParticipationCount, randyWinCount] = await Promise.all([
-      prisma.randyParticipant.count({ where: { telegramId: userId } }),
+      prisma.randyParticipant.count({
+        where: { telegramId: userId, OR: [{ username: { not: null } }, { firstName: { not: null } }] },
+      }),
       prisma.randyWinner.count({ where: { telegramId: userId } }),
     ])
     const randyStats = { participated: randyParticipationCount, won: randyWinCount }
@@ -275,7 +277,9 @@ export async function handleStatsStart(message: any, targetUserId: string) {
       : null
 
     const [randyParticipationCountStart, randyWinCountStart] = await Promise.all([
-      prisma.randyParticipant.count({ where: { telegramId: userId } }),
+      prisma.randyParticipant.count({
+        where: { telegramId: userId, OR: [{ username: { not: null } }, { firstName: { not: null } }] },
+      }),
       prisma.randyWinner.count({ where: { telegramId: userId } }),
     ])
     const randyStats = { participated: randyParticipationCountStart, won: randyWinCountStart }

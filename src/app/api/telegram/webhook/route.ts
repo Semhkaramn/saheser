@@ -278,7 +278,11 @@ export async function POST(request: NextRequest) {
       lowerText === '.haftalık' ||
       lowerText === '.haftalik' ||
       lowerText === '.aylık' ||
-      lowerText === '.aylik'
+      lowerText === '.aylik' ||
+      lowerText === '.inf' ||
+      lowerText.startsWith('.inf ') ||
+      lowerText === '!inf' ||
+      lowerText.startsWith('!inf ')
 
     if (isCommand) {
       // Komutlar: /start, /me, .me, !me, roll komutları, liste, /panel

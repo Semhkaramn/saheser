@@ -221,10 +221,6 @@ async function handleInfoCommand(message: any) {
   }
 
   if (!targetTelegramId && !targetUsername) {
-    await sendTelegramMessage(
-      chatId,
-      'ℹ️ Kullanım: birinin mesajına reply yaparak ".inf" yaz, ya da ".inf 123456789" (ID) veya ".inf kullaniciadi" şeklinde kullan.'
-    )
     return NextResponse.json({ ok: true })
   }
 
@@ -249,7 +245,12 @@ async function handleInfoCommand(message: any) {
 
   const [siteUser, randyParticipationCount, randyWinCount, classicWinCount] = await Promise.all([
     prisma.user.findUnique({ where: { telegramId: resolvedTelegramId }, include: { rank: true } }),
-    prisma.randyParticipant.count({ where: { telegramId: resolvedTelegramId } }),
+    prisma.randyParticipant.count({
+      where: {
+        telegramId: resolvedTelegramId,
+        OR: [{ username: { not: null } }, { firstName: { not: null } }],
+      },
+    }),
     prisma.randyWinner.count({ where: { telegramId: resolvedTelegramId } }),
     prisma.classicGiveawayWinTime.count({ where: { winnerTelegramId: resolvedTelegramId } }),
   ])
