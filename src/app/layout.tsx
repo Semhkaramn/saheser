@@ -92,9 +92,19 @@ export async function generateMetadata(): Promise<Metadata> {
       address: false,
       telephone: false,
     },
-    // ⚠️ Bilerek openGraph/twitter meta verisi YOK: link paylaşılınca
-    // (Telegram/WhatsApp vb.) hiçbir önizleme kartı (görsel, başlık,
-    // açıklama - hiçbiri) görünmesin isteniyor.
+    // ⚠️ openGraph/twitter'a BİLEREK 1x1 şeffaf bir görsel veriyoruz - hiç
+    // görsel belirtilmezse Telegram/WhatsApp gibi platformlar önizleme
+    // kartı için sayfanın gerçek içeriğinden kendi başına bir resim
+    // "kazıyor" (scrape ediyor) - bu yüzden bazı sayfalarda beklenmedik,
+    // bulanık bir görsel çıkıyordu. Açıkça (görünmez) bir görsel vererek bu
+    // otomatik taramayı engelliyoruz - başlık/açıklama kalıyor, görsel yok.
+    openGraph: {
+      images: [{ url: `${siteUrl}/transparent.png`, width: 1, height: 1 }],
+    },
+    twitter: {
+      card: 'summary',
+      images: [`${siteUrl}/transparent.png`],
+    },
     robots: {
       index: true,
       follow: true,
