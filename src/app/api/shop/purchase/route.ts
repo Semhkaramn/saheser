@@ -71,8 +71,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Sponsor kategorisi kontrolü
-    if (item.category === 'Sponsor' && item.sponsorId) {
+    // Sponsor kontrolü - kategori adı ne olursa olsun (kategori sadece görsel
+    // bir etiket, "Nakit" gibi başka bir kategoride de sponsöre bağlı bir
+    // ürün olabilir), item.sponsorId varsa bu kontrol MUTLAKA çalışmalı.
+    // ⚠️ FIX: Eskiden "item.category === 'Sponsor'" şartı da aranıyordu -
+    // kategorisi "Sponsor" olmayan (örn. "Nakit") ama yine de bir sponsöre
+    // bağlı ve "Sadece Onaylılar Alabilir" açık olan ürünlerde bu kontrol
+    // hiç çalışmıyordu, onaysız kullanıcılar sınırsız satın alabiliyordu.
+    if (item.sponsorId) {
       const existingInfo = user.sponsorInfos.find((info: { sponsorId: string }) => info.sponsorId === item.sponsorId)
       const userHasSponsorInfo = !!existingInfo
 
@@ -179,9 +185,10 @@ export async function POST(request: NextRequest) {
           ? (walletAddress || user.trc20WalletAddress)
           : null
 
-        // Sponsor bilgisini belirle
+        // Sponsor bilgisini belirle - kategori adına bakılmaksızın, item
+        // bir sponsöre bağlıysa (yukarıdaki kontrolle aynı mantık).
         let finalSponsorInfo = null
-        if (item.category === 'Sponsor' && item.sponsorId) {
+        if (item.sponsorId) {
           if (sponsorInfo) {
             finalSponsorInfo = sponsorInfo
           } else {
