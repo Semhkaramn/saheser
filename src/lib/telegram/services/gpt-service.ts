@@ -2,31 +2,59 @@ import { prisma } from '@/lib/prisma'
 import { sendTelegramMessage } from '../core'
 import { isBotSystemEnabled } from '../bot-system-check'
 
-// randy-web'deki gpt servisinden uyarlandı. OPENAI_API_KEY ayarlanmadığı
-// sürece bu özellik tamamen sessiz kalır (hiçbir hata/uyarı üretmez).
+// Python bot'taki (gpt_service.py) karakter, atlama kuralları ve özel
+// cevaplar birebir buraya taşındı.
 
-const SYSTEM_PROMPT = `Sen gruba özel, samimi ve tatlı bir sohbet botusun.
+const SYSTEM_PROMPT = `Sen Harley adında tatlı bir kızsın ve Telegram grubunda sohbet ediyorsun.
 
 KARAKTER:
-- Samimi, sıcak, doğal bir insan gibi konuşursun
-- Bazen esprili ama abartısız
+- Samimi, sıcak, doğal bir insansın
+- Bazen cilveli ama abartısız
+- Ruh halin değişken (enerjik / sakin / dalgın / nazlı)
 - Gerçek zamanlı sohbet ediyormuş gibi konuşursun
 
 KONUŞMA TARZI:
-- Kısa yorum, soru veya tepki ver (1-3 cümle)
+İçinden rastgele bir tarz seç ve ona göre cevap ver:
+
+- Kısa yorum: "hahaha bu baya iyiymiş", "cidden mi ya", "şaka gibi"
+- Soru sorma: "ne yaptın bugün", "nasıl geçti günün", "ciddii mi"
+- Tepki: "ahahaha", "yaa off", "hımm"
+- Kısa sohbet: 1-3 cümlelik doğal anlatım
+
+DİL STİLİ:
 - Emoji kullanma
+- ":D", "ahaha", "hahaha", "yaa", "hımm" serbest
+- Bazen cümleler tam bitmeyebilir, doğal konuşma gibi
 - Fazla süslü veya kitap gibi konuşma
 
-ÇOK ÖNEMLİ:
+ÇOK ÖNEMLİ KURALLAR:
+- ASLA "YORUM MODU:", "REAKSİYON MODU:", "SORU MODU:", "SOHBET MODU:" gibi etiketler yazma
+- ASLA hangi modda olduğunu belirtme veya açıklama
 - Sadece doğrudan cevabını yaz, başka bir şey ekleme
-- Hangi modda olduğunu asla belirtme`
+- Ezber cümle kullanma, farklı ifadeler üret
+- İnsan gibi hızlı düşünülmeden yazılmış hissi ver`
 
 const SKIP_PATTERNS = [
-  'randy başladı', 'randy sona erdi', 'katıl', 'kazananlar:',
-  'çekiliş başladı', 'çekilişi kazandınız', 'çekiliş sona erdi', 'çekiliş kazananı',
-  'aktiflik liderleri', 'en aktif', 'aktivite sıralaması',
-  '.günlük', '.haftalık', '.aylık', 'bugün yazdı', 'bu hafta yazdı', 'bu ay yazdı',
-  'roll başladı', 'roll sonlandırıldı', 'roll durumu',
+  // Randy mesajları
+  'randy başladı', 'randy sona erdi', 'katılımcı:', 'kazananlar:', '🎉 katıl', '🎲 randy',
+  // Çekiliş mesajları
+  'çekiliş başladı', 'çekilişi kazandınız', 'çekiliş sona erdi', 'çekiliş kazananı', '🎁 çekiliş',
+  // Aktiflik mesajları
+  'aktiflik liderleri', 'en aktif', 'aktivite sıralaması', 'haftalık aktivite', 'aylık aktivite', 'günlük aktivite',
+  '🏆 haftalık', '🏆 aylık', '🏆 günlük',
+  // İstatistik komutları ve çıktıları
+  '.günlük', '.haftalık', '.aylık', '.aktiflik', 'bugün yazdı', 'bu hafta yazdı', 'bu ay yazdı', 'mesaj istatistik',
+  // Roll mesajları
+  'roll başladı', 'roll sonlandırıldı', 'roll durumu', 'adım kaydedildi',
+]
+
+// GPT cevabının başına bazen sızan mod etiketleri - kullanıcıya gitmeden temizlenir.
+const MODE_PREFIXES = [
+  'Harley:', 'harley:', 'HARLEY:',
+  'YORUM MODU:', 'Yorum Modu:', 'yorum modu:',
+  'REAKSİYON MODU:', 'Reaksiyon Modu:', 'reaksiyon modu:',
+  'SORU MODU:', 'Soru Modu:', 'soru modu:',
+  'SOHBET MODU:', 'Sohbet Modu:', 'sohbet modu:',
 ]
 
 function turkishLower(text: string): string {
@@ -68,7 +96,17 @@ async function getGptResponse(userMessage: string, userName: string): Promise<st
 
     if (!res.ok) return null
     const data = await res.json()
-    return (data.choices?.[0]?.message?.content || '').trim() || null
+    let content = (data.choices?.[0]?.message?.content || '').trim()
+    if (!content) return null
+
+    // Bazen cevabın başına sızan mod etiketlerini ("YORUM MODU:" vb.) temizle
+    for (const prefix of MODE_PREFIXES) {
+      if (content.startsWith(prefix)) {
+        content = content.slice(prefix.length).trim()
+        break
+      }
+    }
+    return content || null
   } catch {
     return null
   }
@@ -100,7 +138,13 @@ export async function maybeSendGptReply(groupId: string, text: string, message: 
   if (!settings?.enabled) return
 
   const lower = turkishLower(text)
-  const hasTriggerWord = lower.includes(turkishLower(settings.triggerWord))
+  const triggerLower = turkishLower(settings.triggerWord)
+  // Varsayılan tetikleyici "harley" ise, yazım hatalarını da (harleyy,
+  // harleyyy gibi) tetikleyici say - Python bot'taki davranışla aynı.
+  const hasTriggerWord =
+    triggerLower === 'harley'
+      ? ['harley', 'harleyy', 'harleyyy'].some((k) => lower.includes(k))
+      : lower.includes(triggerLower)
 
   // ✅ Bota (GPT mesajına) reply yapılırsa da cevap ver - tetikleyici kelime
   // olmasa bile. Ama Randy mesajına reply yapılırsa ASLA cevap verme (o

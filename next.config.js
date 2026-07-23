@@ -90,6 +90,25 @@ const nextConfig = {
   // Turbopack configuration
   turbopack: {},
 
+  // ✅ Eski İngilizce sayfa yolları Türkçe'ye taşındı - paylaşılmış linkler/
+  // yer imleri kırılmasın diye eskiden yeniye yönlendiriyoruz.
+  async redirects() {
+    return [
+      { source: '/events', destination: '/etkinlikler', permanent: true },
+      { source: '/events/:slug', destination: '/etkinlikler/:slug', permanent: true },
+      { source: '/shop', destination: '/market', permanent: true },
+      { source: '/shop/:slug', destination: '/market/:slug', permanent: true },
+      { source: '/tickets', destination: '/biletler', permanent: true },
+      { source: '/tickets/:slug', destination: '/biletler/:slug', permanent: true },
+      { source: '/tasks', destination: '/gorevler', permanent: true },
+      { source: '/wheel', destination: '/cark', permanent: true },
+      { source: '/leaderboard', destination: '/liderlik', permanent: true },
+      { source: '/profile', destination: '/profil', permanent: true },
+      { source: '/profile/sponsors', destination: '/profil/sponsorlar', permanent: true },
+      { source: '/profile/social-media', destination: '/profil/sosyal-medya', permanent: true },
+    ]
+  },
+
   // ✅ Headers for caching and security - improved caching
   async headers() {
     return [

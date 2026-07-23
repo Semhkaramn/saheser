@@ -598,7 +598,7 @@ export default function AdminShopPage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-3">
               {items.length === 0 ? (
                 <Card className="col-span-2 admin-card p-12 text-center">
                   <ShoppingCart className="w-16 h-16 text-gray-500 mx-auto mb-4" />

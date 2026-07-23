@@ -9,7 +9,6 @@ import { ensureAbsoluteUrl, optimizeCloudinaryImage } from '@/lib/utils'
 interface BannerData {
   enabled: boolean
   imageUrl: string
-  mobileImageUrl?: string
   sponsorId: string
   sponsor: {
     id: string
@@ -21,7 +20,6 @@ interface BannerData {
 export default function YatayBanner() {
   const { theme } = useUserTheme()
   const [isClient, setIsClient] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
 
   const { data: bannerData, isLoading } = useQuery({
     queryKey: ['yatayBanner'],
@@ -34,15 +32,6 @@ export default function YatayBanner() {
 
   useEffect(() => {
     setIsClient(true)
-
-    // Ekran boyutunu kontrol et
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024) // lg breakpoint
-    }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-
-    return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
   function handleClick() {
@@ -73,11 +62,7 @@ export default function YatayBanner() {
     return null
   }
 
-  // Mobilde mobileImageUrl varsa onu kullan, yoksa imageUrl kullan
-  const currentImageUrl = isMobile && bannerData.mobileImageUrl
-    ? bannerData.mobileImageUrl
-    : bannerData.imageUrl
-
+  const currentImageUrl = bannerData.imageUrl
   const isGif = currentImageUrl.toLowerCase().endsWith('.gif')
 
   return (
@@ -89,17 +74,25 @@ export default function YatayBanner() {
         borderColor: theme.colors.border
       }}
     >
+      {/* ⚠️ FIX: Eskiden sabit piksel yükseklik (h-16/20/24) + object-contain
+          kullanılıyordu - geniş bir masaüstü görseli mobilde neredeyse hiç
+          görünmüyordu (küçülüp ortada kalıyordu), bu yüzden ayrı bir mobil
+          görseli yüklemek gerekiyordu. Artık sabit bir EN-BOY ORANI (7:1) +
+          object-cover kullanıyoruz - TEK görsel her ekran genişliğinde
+          orantılı şekilde otomatik büyüyüp küçülüyor, ikinci bir yükleme
+          gerekmiyor.
+      */}
       <div
         onClick={handleClick}
-        className={`relative w-full h-16 sm:h-20 md:h-24 overflow-hidden ${bannerData.sponsor?.websiteUrl ? 'cursor-pointer' : ''}`}
+        className={`relative w-full aspect-[7/1] overflow-hidden ${bannerData.sponsor?.websiteUrl ? 'cursor-pointer' : ''}`}
         title={bannerData.sponsor?.name ? `${bannerData.sponsor.name} - Tıklayın` : ''}
         style={isGif ? { willChange: 'transform', transform: 'translateZ(0)', contain: 'paint' } : undefined}
       >
         <Image
-          src={isGif ? currentImageUrl : optimizeCloudinaryImage(currentImageUrl, 1600, 200)}
+          src={isGif ? currentImageUrl : optimizeCloudinaryImage(currentImageUrl, 1600, 230)}
           alt={bannerData.sponsor?.name || 'Sponsor Banner'}
           fill
-          className="object-contain"
+          className="object-cover"
           priority
           unoptimized
         />

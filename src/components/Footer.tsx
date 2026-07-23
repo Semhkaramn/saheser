@@ -1,10 +1,52 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { SITE_CONFIG } from '@/lib/site-config'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useVisitStats } from '@/lib/hooks/useVisitStats'
 import { Eye, Users } from 'lucide-react'
+
+// Sidebar menüsüyle aynı linkler - footer'da da hızlı erişim için.
+const FOOTER_LINKS = [
+  { href: '/', label: 'Ana Sayfa' },
+  { href: '/cark', label: 'Çark' },
+  { href: '/gorevler', label: 'Görevler' },
+  { href: '/market', label: 'Mağaza' },
+  { href: '/etkinlikler', label: 'Etkinlikler' },
+  { href: '/biletler', label: 'Biletler' },
+  { href: '/deneme-bonuslari', label: 'Deneme Bonusları' },
+  { href: '/promosyonlar', label: 'Promosyonlar' },
+  { href: '/profil/sponsorlar', label: 'Aff Geçiş' },
+  { href: '/liderlik', label: 'Liderlik' },
+  { href: '/rehber', label: 'Rehber' },
+]
+
+function FooterNav() {
+  const { theme } = useUserTheme()
+  const pathname = usePathname()
+
+  return (
+    <div className="w-full py-5 px-4" style={{ borderTop: `1px solid ${theme.colors.border}` }}>
+      <nav className="container mx-auto flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+        {FOOTER_LINKS.map((link) => {
+          const isActive = pathname === link.href
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-sm transition-colors hover:opacity-80"
+              style={{ color: isActive ? theme.colors.primary : theme.colors.textMuted, fontWeight: isActive ? 700 : 500 }}
+            >
+              {link.label}
+            </Link>
+          )
+        })}
+      </nav>
+    </div>
+  )
+}
 
 // Ziyaret İstatistikleri - iki ayrı bloktan tek bir rozet şeridine indirgendi
 function VisitStatsBar() {
@@ -52,6 +94,7 @@ export default function Footer() {
 
   return (
     <>
+      <FooterNav />
       <VisitStatsBar />
 
       <footer

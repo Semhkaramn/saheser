@@ -103,7 +103,7 @@ export default function SideBanners({ children }: { children: React.ReactNode })
       {/* Sol Banner */}
       {leftBanner && leftSponsor && (
         <div
-          className="hidden xl:block flex-shrink-0 w-[160px] 2xl:w-[200px] cursor-pointer pt-4"
+          className="hidden md:block flex-shrink-0 w-[110px] lg:w-[140px] xl:w-[160px] 2xl:w-[200px] cursor-pointer pt-4"
           onClick={() => handleBannerClick(leftSponsor)}
         >
           <div
@@ -115,7 +115,7 @@ export default function SideBanners({ children }: { children: React.ReactNode })
               alt={leftSponsor.name}
               width={200}
               height={800}
-              className="object-fill w-full h-full"
+              className="object-cover w-full h-full"
               priority
               quality={85}
               unoptimized
@@ -131,7 +131,7 @@ export default function SideBanners({ children }: { children: React.ReactNode })
       {/* Sağ Banner */}
       {rightBanner && rightSponsor && (
         <div
-          className="hidden xl:block flex-shrink-0 w-[160px] 2xl:w-[200px] cursor-pointer pt-4"
+          className="hidden md:block flex-shrink-0 w-[110px] lg:w-[140px] xl:w-[160px] 2xl:w-[200px] cursor-pointer pt-4"
           onClick={() => handleBannerClick(rightSponsor)}
         >
           <div
@@ -143,7 +143,7 @@ export default function SideBanners({ children }: { children: React.ReactNode })
               alt={rightSponsor.name}
               width={200}
               height={800}
-              className="object-fill w-full h-full"
+              className="object-cover w-full h-full"
               priority
               quality={85}
               unoptimized

@@ -103,7 +103,7 @@ export default function Header() {
 
                 {/* User Profile Button */}
                 <Link
-                  href="/profile"
+                  href="/profil"
                   prefetch={true}
                   className="flex items-center gap-2 lg:gap-3 px-2 lg:px-3 py-1.5 lg:py-2 rounded-full transition-all duration-200 backdrop-blur-sm"
                   style={{

@@ -73,10 +73,8 @@ export default function YatayBannerSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [uploadingMobile, setUploadingMobile] = useState(false)
   const [bannerData, setBannerData] = useState({
     imageUrl: '',
-    mobileImageUrl: '',
     sponsorId: '',
     enabled: false
   })
@@ -144,12 +142,8 @@ export default function YatayBannerSettings() {
     }
   }
 
-  async function uploadImage(file: File, type: 'desktop' | 'mobile' = 'desktop') {
-    if (type === 'mobile') {
-      setUploadingMobile(true)
-    } else {
-      setUploading(true)
-    }
+  async function uploadImage(file: File, type: 'desktop' = 'desktop') {
+    setUploading(true)
 
     try {
       const formData = new FormData()
@@ -162,9 +156,7 @@ export default function YatayBannerSettings() {
 
       const data = await response.json()
       if (data.url) {
-        const newBannerData = type === 'mobile'
-          ? { ...bannerData, mobileImageUrl: data.url }
-          : { ...bannerData, imageUrl: data.url }
+        const newBannerData = { ...bannerData, imageUrl: data.url }
         setBannerData(newBannerData)
 
         // Auto-save
@@ -183,7 +175,7 @@ export default function YatayBannerSettings() {
 
         const saveData = await saveResponse.json()
         if (saveData.success) {
-          toast.success(`${type === 'mobile' ? 'Mobil' : 'Masaüstü'} resim yüklendi ve kaydedildi`)
+          toast.success('Resim yüklendi ve kaydedildi')
         } else {
           toast.error('Resim yüklendi ama kaydedilemedi')
         }
@@ -193,11 +185,7 @@ export default function YatayBannerSettings() {
     } catch (error) {
       toast.error('Resim yüklenirken hata oluştu')
     } finally {
-      if (type === 'mobile') {
-        setUploadingMobile(false)
-      } else {
-        setUploading(false)
-      }
+      setUploading(false)
     }
   }
 
@@ -294,9 +282,9 @@ export default function YatayBannerSettings() {
         <h2 className="text-xl font-bold text-white mb-4">Banner İçeriği</h2>
 
         <div className="space-y-4">
-          {/* Desktop Image Upload */}
+          {/* Banner Görseli - artık tek yükleme, tüm cihazlarda otomatik oranlanıyor */}
           <div>
-            <Label className="admin-text-primary">Masaüstü Banner Görseli (Yatay - GIF Desteklenir)</Label>
+            <Label className="admin-text-primary">Banner Görseli (Yatay - GIF Desteklenir)</Label>
             <div className="mt-2 space-y-2">
               <Input
                 type="file"
@@ -309,51 +297,18 @@ export default function YatayBannerSettings() {
                 className="admin-card admin-text-primary"
               />
               <p className="text-xs admin-text-muted">
-                Önerilen boyut: 1200x100px veya 1920x150px. GIF dosyaları desteklenir.
+                Tek görsel yeterli - telefon, tablet ve masaüstünde otomatik olarak orantılı gösterilir. Önerilen boyut: 1600x230px (yaklaşık 7:1 yatay oran). GIF dosyaları desteklenir.
               </p>
 
               {/* Preview */}
               {bannerData.imageUrl && (
-                <div className="relative w-full h-24 rounded-lg overflow-hidden border border-white/10 bg-white/5">
+                <div className="relative w-full aspect-[7/1] rounded-lg overflow-hidden border border-white/10 bg-white/5">
                   <Image
                     src={bannerData.imageUrl}
-                    alt="Masaüstü Banner Preview"
+                    alt="Banner Preview"
                     fill
-                    className="object-contain"
+                    className="object-cover"
                     unoptimized={bannerData.imageUrl.toLowerCase().endsWith('.gif')}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Mobile Image Upload */}
-          <div>
-            <Label className="admin-text-primary">Mobil/Tablet Banner Görseli (Yatay - GIF Desteklenir)</Label>
-            <div className="mt-2 space-y-2">
-              <Input
-                type="file"
-                accept="image/*,.gif"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) uploadImage(file, 'mobile')
-                }}
-                disabled={uploadingMobile}
-                className="admin-card admin-text-primary"
-              />
-              <p className="text-xs admin-text-muted">
-                Mobil ve tablet cihazlarda gösterilecek görsel. Önerilen boyut: 800x80px. Yüklenmezse masaüstü görseli kullanılır.
-              </p>
-
-              {/* Preview */}
-              {bannerData.mobileImageUrl && (
-                <div className="relative w-full h-20 rounded-lg overflow-hidden border border-white/10 bg-white/5">
-                  <Image
-                    src={bannerData.mobileImageUrl}
-                    alt="Mobil Banner Preview"
-                    fill
-                    className="object-contain"
-                    unoptimized={bannerData.mobileImageUrl.toLowerCase().endsWith('.gif')}
                   />
                 </div>
               )}

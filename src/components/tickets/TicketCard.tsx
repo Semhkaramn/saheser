@@ -51,7 +51,7 @@ export function TicketCard({ event, type = 'user', formatAmount, formatDateTR, o
   const router = useRouter()
   const { theme, card } = useUserTheme()
   const totalPrizePool = event.prizes.reduce((sum, p) => sum + (p.prizeAmount * p.winnerCount), 0)
-  const basePath = type === 'admin' ? '/admin/tickets' : '/tickets'
+  const basePath = type === 'admin' ? '/admin/tickets' : '/biletler'
   const detailSlug = type === 'admin' ? event.id : (event.slug || event.id)
 
   const handleDetailClick = () => {

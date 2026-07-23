@@ -26,7 +26,6 @@ export async function GET(request: NextRequest) {
             sponsor: { select: { logoUrl: true } },
           },
           orderBy: [
-            { category: 'asc' },
             { order: 'asc' }
           ]
         })

@@ -274,16 +274,16 @@ export default function Sidebar() {
     {
       label: 'Kazan',
       items: [
-        { href: '/wheel', label: 'Çark', icon: Ticket, active: pathname === '/wheel' },
-        { href: '/tasks', label: 'Görevler', icon: FileText, active: pathname === '/tasks' },
-        { href: '/shop', label: 'Mağaza', icon: ShoppingBag, active: pathname === '/shop' },
+        { href: '/cark', label: 'Çark', icon: Ticket, active: pathname === '/cark' },
+        { href: '/gorevler', label: 'Görevler', icon: FileText, active: pathname === '/gorevler' },
+        { href: '/market', label: 'Mağaza', icon: ShoppingBag, active: pathname === '/market' },
       ],
     },
     {
       label: 'Etkinlikler',
       items: [
-        { href: '/events', label: 'Etkinlikler', icon: Calendar, active: pathname === '/events' },
-        { href: '/tickets', label: 'Biletler', icon: TicketCheck, active: pathname === '/tickets' },
+        { href: '/etkinlikler', label: 'Etkinlikler', icon: Calendar, active: pathname === '/etkinlikler' },
+        { href: '/biletler', label: 'Biletler', icon: TicketCheck, active: pathname === '/biletler' },
       ],
     },
     {
@@ -291,13 +291,13 @@ export default function Sidebar() {
       items: [
         { href: '/deneme-bonuslari', label: 'Deneme Bonusları', icon: Gift, active: pathname === '/deneme-bonuslari' },
         { href: '/promosyonlar', label: 'Promosyonlar', icon: Sparkles, active: pathname === '/promosyonlar' },
-        { href: '/profile/sponsors', label: 'Aff Geçiş', icon: Repeat, active: pathname === '/profile/sponsors' },
+        { href: '/profil/sponsorlar', label: 'Aff Geçiş', icon: Repeat, active: pathname === '/profil/sponsorlar' },
       ],
     },
     {
       label: 'Topluluk',
       items: [
-        { href: '/leaderboard', label: 'Liderlik', icon: Trophy, active: pathname === '/leaderboard' },
+        { href: '/liderlik', label: 'Liderlik', icon: Trophy, active: pathname === '/liderlik' },
         { href: '/rehber', label: 'Rehber', icon: BookOpen, active: pathname === '/rehber' },
       ],
     },
@@ -364,7 +364,7 @@ export default function Sidebar() {
         className={`lg:hidden fixed left-0 top-0 h-screen w-64 backdrop-blur-sm flex flex-col z-40 transition-transform duration-300 ease-in-out ${
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
-        style={sidebarStyle}
+        style={{ ...sidebarStyle, paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="pt-16" />
         <IdentityCard theme={theme} isAuthenticated={isAuthenticated} user={user} rankIcon={rankIcon} rankName={rankName} />
@@ -451,7 +451,7 @@ function NavGroups({
   }
 
   return (
-    <nav className="flex-1 min-h-0 px-3 py-2 space-y-5 overflow-y-auto">
+    <nav className="flex-1 min-h-0 px-3 py-2 space-y-5 overflow-y-auto" style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}>
       {menuGroups.map((group) => (
         <div key={group.label}>
           <p
