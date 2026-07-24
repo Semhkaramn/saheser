@@ -230,6 +230,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // 1️⃣ Callback Query (Buton tıklamaları) - "bilinen grup" kontrolünden
+    // ÖNCE işleniyor. ⚠️ FIX: Sponsor onay grupları gibi, botun sadece
+    // bildirim attığı ve kimsenin hiç düz yazı mesajı yazmadığı gruplar,
+    // aşağıdaki "isKnownGroup" kontrolüne hiç girmiyordu (kayıt, normal bir
+    // mesaj atılınca oluşuyor) - bu yüzden o gruplardaki buton tıklamaları
+    // sessizce yok sayılıyordu (Telegram hiç cevap alamayıp sonsuza kadar
+    // "yükleniyor" gösteriyordu). Bir buton tıklaması zaten meşru bir
+    // etkileşim - botun kendi gönderdiği mesaja basılıyor - bu yüzden grup
+    // kaydına bakılmaksızın her zaman işlenmeli.
+    if (update.callback_query) {
+      console.log('🔘 Callback query received')
+      return await handleCallbackQuery(update.callback_query)
+    }
+
     // Private chat'ler ve bot admin paneline kayıtlı gruplar için activity group
     // kontrolü yapma (start komutu, Randy katılım butonu, klasik çekiliş vb.
     // her kayıtlı grupta çalışabilsin). Puan kazanma sistemi message-handler
@@ -248,12 +262,6 @@ export async function POST(request: NextRequest) {
     // geçerli değil)
     if (update.channel_post) {
       return NextResponse.json({ ok: true })
-    }
-
-    // 1️⃣ Callback Query (Buton tıklamaları)
-    if (update.callback_query) {
-      console.log('🔘 Callback query received')
-      return await handleCallbackQuery(update.callback_query)
     }
 
     // 2️⃣ Mesaj kontrolü
