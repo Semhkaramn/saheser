@@ -11,7 +11,7 @@ import {
   ThemedCard,
   ThemedButton,
 } from '@/components/ui/themed'
-import { Building2, Share2, ArrowRight, Gift, Loader2, CheckCircle } from 'lucide-react'
+import { Building2, Share2, ArrowRight, Gift, Loader2, CheckCircle, Copy, Users } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useAuth } from '@/components/providers/auth-provider'
@@ -62,6 +62,8 @@ interface UserData {
   totalMessages: number
   totalReferrals: number
   referralPoints: number
+  referralCode?: string | null
+  _count?: { referrals: number }
   pointHistory?: PointHistory[]
   messageStats?: {
     daily: number
@@ -101,6 +103,7 @@ function ProfileContent() {
   const [promocode, setPromocode] = useState('')
   const [promocodeLoading, setPromocodeLoading] = useState(false)
   const [promocodeSuccess, setPromocodeSuccess] = useState<{ points: number } | null>(null)
+  const [refCopied, setRefCopied] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -244,6 +247,48 @@ function ProfileContent() {
               </ThemedCard>
             </Link>
           </div>
+
+          {/* Davet Et - Referans linki */}
+          {userData.referralCode && (
+            <ThemedCard className="p-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${theme.colors.warning}15` }}>
+                  <Users className="w-[18px] h-[18px]" style={{ color: theme.colors.warning }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm" style={{ color: theme.colors.text }}>Arkadaşını Davet Et</p>
+                  <p className="text-xs" style={{ color: theme.colors.textMuted }}>
+                    Linkinle kayıt olan herkes ve sen 500 puan kazanırsınız
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="flex-1 min-w-0 px-3 py-2 rounded-lg text-xs truncate font-data"
+                  style={{ background: theme.colors.backgroundSecondary, color: theme.colors.textSecondary }}
+                >
+                  {typeof window !== 'undefined' ? window.location.origin : ''}/?ref={userData.referralCode}
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/?ref=${userData.referralCode}`)
+                    setRefCopied(true)
+                    setTimeout(() => setRefCopied(false), 2000)
+                  }}
+                  className="flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  style={{ background: theme.colors.primary, color: theme.colors.primaryForeground }}
+                >
+                  {refCopied ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {refCopied ? 'Kopyalandı' : 'Kopyala'}
+                </button>
+              </div>
+              {(userData._count?.referrals ?? 0) > 0 && (
+                <p className="text-xs" style={{ color: theme.colors.textMuted }}>
+                  🎉 Şu ana kadar <b style={{ color: theme.colors.text }}>{userData._count?.referrals}</b> kişi senin linkinle katıldı.
+                </p>
+              )}
+            </ThemedCard>
+          )}
 
           {/* History, Purchases, Ranks Tabs - Full Width */}
           <ProfileTabs

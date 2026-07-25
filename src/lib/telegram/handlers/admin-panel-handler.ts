@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { checkTelegramAdmin, sendTelegramMessage, editTelegramMessage, answerCallbackQuery, pinChatMessage, deleteTelegramMessage } from '../core'
 import { startRandy, endRandy } from '../services/randy-bot-service'
 import { sendBroadcastToAllUsers } from '../services/broadcast-service'
-import { runTagging, stopTaggingRun, getTaggingRunStatus } from '../services/tagging-service'
+import { runTagging, stopTaggingRun, getTaggingRunStatus, getTaggingSettings, setTaggingSettings } from '../services/tagging-service'
 import { isCrossBanEnabled, setCrossBanEnabled } from '../services/cross-ban-service'
 import { createClassicGiveaway, endClassicGiveaway, cancelClassicGiveaway, getActiveClassicGiveaway, getClassicGiveawayStatus } from '../services/classic-giveaway-service'
 import { getGptSettings, setGptSettings } from '../services/gpt-service'
@@ -45,6 +45,8 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
   const weeklySettings = await getWeeklyRewardSettings(group.groupId)
   const weeklyOn = weeklySettings?.enabled ?? false
   const activeGiveaway = isChannel ? null : await getActiveClassicGiveaway(group.groupId)
+  const taggingSettings = isChannel ? null : await getTaggingSettings(group.groupId)
+  const autoTagOn = taggingSettings?.enabled ?? false
 
   const rows: { text: string; callback_data: string }[][] = []
 
@@ -64,6 +66,7 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
       callback_data: `admgiveaway_new:${group.groupId}`,
     }])
     rows.push([{ text: '🏷️ Üyeleri Etiketle', callback_data: `admtag_new:${group.groupId}` }])
+    rows.push([{ text: `⚙️ Otomatik Etiketleme: ${autoTagOn ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admautotagmenu:${group.groupId}` }])
     rows.push([{ text: '🚫 Etiketleme Hariç Listesi', callback_data: `admtagexcl:${group.groupId}` }])
     rows.push([{ text: contestRunning ? '📈 Aktiflik Yarışması: Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` }])
     rows.push([{ text: `🏆 Haftalık Ödüller: ${weeklyOn ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admweeklymenu:${group.groupId}` }])
@@ -291,6 +294,41 @@ async function buildRandyReqMenuMessage(group: { groupId: string; title: string 
 // Puan ödülü alt menüsü - eskiden "Puan Ekle"/"Puanı Kaldır" ana menüde iki
 // ayrı buton olarak duruyordu, şu an kaç puan olduğunu görmüyordun. Artık
 // tek bir buton açıyor, güncel değeri gösteren kendi ekranı var.
+async function buildAutoTagMenuMessage(group: { groupId: string; title: string | null }) {
+  const settings = await getTaggingSettings(group.groupId)
+  const enabled = settings?.enabled ?? false
+  const interval = settings?.intervalMinutes ?? 60
+  const inactiveDays = settings?.minInactiveDays ?? 7
+
+  return {
+    text: [
+      `⚙️ <b>Otomatik Etiketleme — ${group.title || group.groupId}</b>`,
+      '',
+      `Durum: <b>${enabled ? 'Açık ✅' : 'Kapalı ❌'}</b>`,
+      `Sıklık: <b>Her ${interval} dakikada bir</b>`,
+      `Hedef: <b>En az ${inactiveDays} gündür yazmayanlar</b>`,
+      '',
+      'Açıkken, bot arka planda otomatik olarak (senin ayarladığın sıklıkta) uzun süredir mesaj atmamış üyeleri etiketler - elle "/etiket" yazmana gerek kalmaz.',
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: `${enabled ? '☑️' : '⬜'} Otomatik Etiketleme Açık`, callback_data: `admautotagtoggle:${group.groupId}` }],
+        [
+          { text: `${interval === 20 ? '🔘' : '⚪'} 20 dk`, callback_data: `admautotaginterval:${group.groupId}:20` },
+          { text: `${interval === 30 ? '🔘' : '⚪'} 30 dk`, callback_data: `admautotaginterval:${group.groupId}:30` },
+          { text: `${interval === 60 ? '🔘' : '⚪'} 60 dk`, callback_data: `admautotaginterval:${group.groupId}:60` },
+        ],
+        [
+          { text: `${inactiveDays === 7 ? '🔘' : '⚪'} 1 Hafta`, callback_data: `admautotagdays:${group.groupId}:7` },
+          { text: `${inactiveDays === 14 ? '🔘' : '⚪'} 2 Hafta`, callback_data: `admautotagdays:${group.groupId}:14` },
+          { text: `${inactiveDays === 30 ? '🔘' : '⚪'} 1 Ay`, callback_data: `admautotagdays:${group.groupId}:30` },
+        ],
+        [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
+      ],
+    },
+  }
+}
+
 async function buildRandyPointsMenuMessage(group: { groupId: string; title: string | null }) {
   const defaults = await getRandyGroupDefaults(group.groupId)
   const points = defaults?.pointsReward
@@ -698,6 +736,75 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
     await answerCallbackQuery(query.id, newValue ? '✅ Website zorunluluğu açıldı.' : '✅ Website zorunluluğu kapatıldı.')
+    return true
+  }
+
+  if (data.startsWith('admautotagmenu:')) {
+    const groupId = data.replace('admautotagmenu:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildAutoTagMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admautotagtoggle:')) {
+    const groupId = data.replace('admautotagtoggle:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const current = await getTaggingSettings(groupId)
+    const newValue = !(current?.enabled ?? false)
+    await setTaggingSettings(groupId, { enabled: newValue })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildAutoTagMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id, newValue ? '✅ Otomatik etiketleme açıldı.' : '✅ Otomatik etiketleme kapatıldı.')
+    return true
+  }
+
+  if (data.startsWith('admautotaginterval:')) {
+    const [, groupId, minutesStr] = data.split(':')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    await setTaggingSettings(groupId, { intervalMinutes: Number(minutesStr) })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildAutoTagMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id, `✅ Sıklık ${minutesStr} dakika olarak ayarlandı.`)
+    return true
+  }
+
+  if (data.startsWith('admautotagdays:')) {
+    const [, groupId, daysStr] = data.split(':')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    await setTaggingSettings(groupId, { minInactiveDays: Number(daysStr) })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildAutoTagMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id, `✅ Hedef ${daysStr} gün olarak ayarlandı.`)
     return true
   }
 

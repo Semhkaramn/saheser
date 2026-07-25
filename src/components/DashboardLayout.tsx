@@ -1,7 +1,7 @@
 'use client'
 
-import { ReactNode } from 'react'
-import { usePathname } from 'next/navigation'
+import { ReactNode, useEffect } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import SponsorBanner from './SponsorBanner'
@@ -32,6 +32,20 @@ const YATAY_BANNER_PATHS: string[] | null = null // null = her sayfada göster
 // ✅ FIX: UserThemeProvider kaldırıldı - zaten layout.tsx'de var (duplicate provider sorunu)
 export default function DashboardLayout({ children, showSponsorBanner, showYatayBanner }: DashboardLayoutProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  // 🔗 Referans linki (?ref=KOD) ile gelen ziyaretçinin kodu, hangi
+  // sayfada gezinirse gezinsin kayıt olana kadar hatırlansın diye.
+  useEffect(() => {
+    const ref = searchParams.get('ref')
+    if (ref) {
+      try {
+        localStorage.setItem('pending_referral_code', ref)
+      } catch {
+        // localStorage kapalıysa (gizli sekme vb.) önemli değil, sessizce geç
+      }
+    }
+  }, [searchParams])
 
   const resolvedShowSponsorBanner = showSponsorBanner ?? SPONSOR_BANNER_PATHS.includes(pathname)
   const resolvedShowYatayBanner = showYatayBanner ?? (YATAY_BANNER_PATHS === null ? true : YATAY_BANNER_PATHS.includes(pathname))

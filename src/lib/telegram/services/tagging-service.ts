@@ -67,7 +67,7 @@ export async function getTaggingSettings(groupId: string) {
 
 export async function setTaggingSettings(
   groupId: string,
-  data: Partial<{ enabled: boolean; intervalMinutes: number; tagMessage: string }>
+  data: Partial<{ enabled: boolean; intervalMinutes: number; tagMessage: string; minInactiveDays: number }>
 ) {
   return prisma.taggingSettings.upsert({
     where: { groupId },
@@ -120,9 +120,16 @@ interface TaggableUser {
   firstName: string | null
 }
 
-async function getTaggableUsers(groupId: string): Promise<TaggableUser[]> {
+async function getTaggableUsers(groupId: string, minInactiveDays?: number): Promise<TaggableUser[]> {
+  const where: any = { lastGroupId: groupId, isTaggable: true }
+  if (minInactiveDays && minInactiveDays > 0) {
+    const cutoff = new Date(Date.now() - minInactiveDays * 24 * 60 * 60 * 1000)
+    // Hiç mesaj atmamış olanlar da (lastMessageAt: null) dahil - onlar da
+    // uzun süredir "sessiz" sayılır.
+    where.OR = [{ lastMessageAt: null }, { lastMessageAt: { lte: cutoff } }]
+  }
   const users = await prisma.telegramGroupUser.findMany({
-    where: { lastGroupId: groupId, isTaggable: true },
+    where,
     select: { telegramId: true, username: true, firstName: true },
   })
   return shuffle(users)
@@ -163,14 +170,14 @@ function getMentionDisplayName(u: { username: string | null; firstName: string |
 export async function runTagging(
   groupId: string,
   message: string | null,
-  options: { batchSize?: number; entities?: any[]; delayMs?: number; useRandomPhrasePool?: boolean } = {}
+  options: { batchSize?: number; entities?: any[]; delayMs?: number; useRandomPhrasePool?: boolean; minInactiveDays?: number } = {}
 ): Promise<{ sent: number; total: number; stopped: boolean }> {
   if (!(await isBotSystemEnabled('auto_tag'))) return { sent: 0, total: 0, stopped: true }
 
   const batchSize = options.batchSize ?? 5
   const delayMs = options.delayMs ?? (batchSize === 1 ? 2000 : 1200)
 
-  const users = await getTaggableUsers(groupId)
+  const users = await getTaggableUsers(groupId, options.minInactiveDays)
   if (users.length === 0) return { sent: 0, total: 0, stopped: false }
 
   await prisma.taggingRun.upsert({

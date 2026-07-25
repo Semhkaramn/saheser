@@ -2,9 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import { createAdminToken, setAdminAuthCookie } from '@/lib/admin-middleware'
+import { checkLoginRateLimit, resetLoginRateLimit } from '@/lib/rate-limit'
+
+function getClientIp(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for')
+  return forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown'
+}
 
 export async function POST(request: NextRequest) {
   try {
+    const ipAddress = getClientIp(request)
+    // 🔒 Admin girişi daha hassas olduğu için daha sıkı bir sınır: 10
+    // dakikada en fazla 5 deneme.
+    const rateCheck = await checkLoginRateLimit(`admin:${ipAddress}`, 5, 600)
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Çok fazla başarısız giriş denemesi. Lütfen birkaç dakika sonra tekrar dene.' },
+        { status: 429 }
+      )
+    }
+
     const body = await request.json()
     const { username, password } = body
 
@@ -44,6 +61,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    // Başarılı giriş - deneme sayacını sıfırla
+    await resetLoginRateLimit(`admin:${ipAddress}`)
 
     // JWT token oluştur
     const token = await createAdminToken({

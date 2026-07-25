@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const results = []
 
     for (const settings of dueGroups) {
-      const result = await runTagging(settings.groupId, settings.tagMessage)
+      const result = await runTagging(settings.groupId, settings.tagMessage, { minInactiveDays: settings.minInactiveDays })
       results.push({ groupId: settings.groupId, ...result })
     }
 

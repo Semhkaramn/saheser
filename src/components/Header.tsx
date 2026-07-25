@@ -11,6 +11,7 @@ import { SITE_CONFIG } from '@/lib/site-config'
 import { optimizeCloudinaryImage } from '@/lib/utils'
 import PromocodeModal from '@/components/PromocodeModal'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
+import NotificationBell from '@/components/NotificationBell'
 
 export default function Header() {
   const { user, isAuthenticated, setShowLoginModal, setShowRegisterModal } = useAuth()
@@ -101,6 +102,9 @@ export default function Header() {
                   </div>
                 </div>
 
+                {/* Bildirimler */}
+                <NotificationBell />
+
                 {/* User Profile Button */}
                 <Link
                   href="/profil"
@@ -127,7 +131,7 @@ export default function Header() {
                     )}
                   </Avatar>
                   <span className="inline text-xs lg:text-sm font-medium pr-1 max-w-[72px] sm:max-w-none truncate" style={{ color: theme.colors.textSecondary }}>
-                    {user.siteUsername || user.firstName || 'Profil'}
+                    Profil
                   </span>
                 </Link>
               </>

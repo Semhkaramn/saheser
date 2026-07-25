@@ -8,6 +8,7 @@ import { RUTBE } from '@/lib/telegram/taslaklar'
 import { logActivity } from '@/lib/services/activity-log-service'
 import { GROUP_ANONYMOUS_BOT_ID, TELEGRAM_SERVICE_ACCOUNT_ID } from '@/lib/telegram/utils/anonymous-admin'
 import { autoClaimAllEligibleTasks } from '@/lib/services/task-service'
+import { createNotification } from '@/lib/services/notification-service'
 
 // Types
 export interface MessageRewardInput {
@@ -334,6 +335,15 @@ export async function processMessageReward(
         xp: rewardResult.updatedUser.xp
       }
     ).catch(err => console.error('Level up notification error:', err))
+
+    createNotification({
+      userId: existingTgUser.linkedUserId!,
+      type: 'rank_up',
+      title: `${rewardResult.newRank.icon} Rütbe Atladın!`,
+      message: rewardResult.rankPointsAwarded > 0
+        ? `${rewardResult.newRank.name} rütbesine yükseldin, +${rewardResult.rankPointsAwarded} puan ödülü kazandın.`
+        : `${rewardResult.newRank.name} rütbesine yükseldin.`,
+    }).catch(() => {})
 
     // 1️⃣2️⃣ Rütbe yükselme aktivite log'u
     logActivity({

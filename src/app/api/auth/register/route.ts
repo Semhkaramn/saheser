@@ -4,13 +4,18 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { createToken, createAuthResponse } from '@/lib/auth'
 import { logRegister, extractRequestInfo } from '@/lib/services/activity-log-service'
+import { createNotification } from '@/lib/services/notification-service'
 
 // Validation schema
 const registerSchema = z.object({
   email: z.string().email('Geçerli bir email adresi giriniz'),
   siteUsername: z.string().min(3, 'Kullanıcı adı en az 3 karakter olmalıdır').max(20, 'Kullanıcı adı en fazla 20 karakter olabilir'),
-  password: z.string().min(6, 'Şifre en az 6 karakter olmalıdır')
+  password: z.string().min(6, 'Şifre en az 6 karakter olmalıdır'),
+  referralCode: z.string().optional().nullable(),
 })
+
+// 🔗 Referans sistemi - hem daveti gönderen hem yeni gelen bu kadar puan kazanır.
+const REFERRAL_BONUS_POINTS = 500
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,7 +33,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { email, siteUsername, password } = validation.data
+    const { email, siteUsername, password, referralCode } = validation.data
 
     // ✅ Email artık kayıt olmadan ÖNCE doğrulanıyor (inline, form üstünde).
     // Doğrulanmamış bir email ile kayıt olunamaz.
@@ -67,13 +72,37 @@ export async function POST(request: NextRequest) {
     // Şifreyi hashle
     const passwordHash = await bcrypt.hash(password, 10)
 
+    // 🔗 Referans kodu geçerli mi kontrol et (kendi kendine davet olmasın diye
+    // zaten kendi hesabı henüz yok, bu adımda mümkün değil zaten).
+    let referrer: { id: string } | null = null
+    if (referralCode) {
+      referrer = await prisma.user.findUnique({ where: { referralCode }, select: { id: true } })
+    }
+
+    // Yeni kullanıcı için benzersiz bir davet kodu üret (kullanıcı adına
+    // dayalı + rastgele ek - çakışma ihtimaline karşı birkaç kez dener).
+    let newReferralCode = ''
+    for (let i = 0; i < 5; i++) {
+      const candidate = `${siteUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}${Math.floor(1000 + Math.random() * 9000)}`
+      const exists = await prisma.user.findUnique({ where: { referralCode: candidate }, select: { id: true } })
+      if (!exists) {
+        newReferralCode = candidate
+        break
+      }
+    }
+
     // Yeni kullanıcı oluştur - email zaten doğrulandığı için emailVerified: true
     const user = await prisma.user.create({
       data: {
         email,
         siteUsername,
         password: passwordHash,
-        emailVerified: true
+        emailVerified: true,
+        referralCode: newReferralCode || null,
+        referredByUserId: referrer?.id || null,
+        // Davet edilerek gelen kullanıcıya kayıt olur olmaz bonus verilir.
+        points: referrer ? REFERRAL_BONUS_POINTS : 0,
+        referralBonusGiven: !!referrer,
         // loginMethod kaldırıldı - email/password varlığından anlaşılır
       },
       select: {
@@ -84,6 +113,45 @@ export async function POST(request: NextRequest) {
         xp: true
       }
     })
+
+    // Daveti gönderen kişiye de bonus puanı ekle
+    if (referrer) {
+      await prisma.user.update({
+        where: { id: referrer.id },
+        data: { points: { increment: REFERRAL_BONUS_POINTS } },
+      })
+      await prisma.pointHistory.create({
+        data: {
+          userId: referrer.id,
+          amount: REFERRAL_BONUS_POINTS,
+          type: 'referral_bonus',
+          description: `${siteUsername} adlı kullanıcıyı davet ettin`,
+          relatedId: user.id,
+        },
+      }).catch(() => {})
+      await prisma.pointHistory.create({
+        data: {
+          userId: user.id,
+          amount: REFERRAL_BONUS_POINTS,
+          type: 'referral_bonus',
+          description: `Davet linkiyle kayıt olduğun için bonus`,
+          relatedId: referrer.id,
+        },
+      }).catch(() => {})
+
+      await createNotification({
+        userId: referrer.id,
+        type: 'referral_bonus',
+        title: '🎉 Davet Bonusu Kazandın!',
+        message: `${siteUsername} senin linkinle kayıt oldu, ${REFERRAL_BONUS_POINTS} puan kazandın.`,
+      })
+      await createNotification({
+        userId: user.id,
+        type: 'referral_bonus',
+        title: '🎉 Hoş Geldin Bonusu!',
+        message: `Davet linkiyle kayıt olduğun için ${REFERRAL_BONUS_POINTS} puan kazandın.`,
+      })
+    }
 
     // Geçici doğrulama kaydını temizle - artık gerek yok
     await prisma.pendingEmailVerification.delete({ where: { email } }).catch(() => {})

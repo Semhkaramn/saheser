@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { sendTelegramMessage, editTelegramMessage, answerCallbackQuery } from '../core'
 import { isBotSystemEnabled } from '../bot-system-check'
 import { renderTemplateByKey } from '@/lib/message-templates'
+import { createNotification } from '@/lib/services/notification-service'
 
 // randy-web'deki sponsor onay akışından uyarlandı.
 // Kullanıcı sponsor bilgisini (kullanıcı adı/id/email) girince, sponsorun
@@ -175,6 +176,18 @@ export async function handleSponsorConfirm(query: any): Promise<boolean> {
 
   if (info.user.telegramId) {
     await sendTelegramMessage(info.user.telegramId, await buildUserNotifyText(info.sponsor.name, statusRaw)).catch(() => {})
+  }
+
+  if (statusRaw === 'approved' || statusRaw === 'incorrect' || statusRaw === 'rejected') {
+    await createNotification({
+      userId: info.user.id,
+      type: statusRaw === 'approved' ? 'sponsor_approved' : 'sponsor_rejected',
+      title: statusRaw === 'approved' ? '✅ Sponsor Bilgin Onaylandı' : '❌ Sponsor Bilgin Reddedildi',
+      message: statusRaw === 'approved'
+        ? `${info.sponsor.name} için verdiğin bilgi onaylandı.`
+        : `${info.sponsor.name} için verdiğin bilgi onaylanmadı, lütfen kontrol edip tekrar gönder.`,
+      linkUrl: '/profil/sponsorlar',
+    })
   }
 
   return true

@@ -236,6 +236,15 @@ model PendingEmailVerification {
 model User {
   id               String          @id @default(cuid())
 
+  // 🔗 Referans/Davet Sistemi - üye kendi linkiyle birini getirirse ikisi de
+  // bonus puan kazanır.
+  referralCode     String?         @unique // Bu kullanıcının kendi davet kodu
+  referredByUserId String?         // Bu kullanıcıyı kim davet etti
+  referredBy       User?           @relation("Referrals", fields: [referredByUserId], references: [id], onDelete: SetNull)
+  referrals        User[]          @relation("Referrals") // Bu kullanıcının davet ettiği kişiler
+  referralBonusGiven Boolean       @default(false) // Davet bonusu zaten verildi mi (tekrar verilmesin diye)
+  notifications    Notification[]
+
   // Email/Password Authentication
   email            String?         @unique
   password         String?         // Hashed password (bcrypt)
@@ -421,6 +430,25 @@ model WheelSpin {
   spunAt           DateTime        @default(now())
 
   @@index([userId])
+}
+
+// 🔔 Bildirim Merkezi - şu an ayrı ayrı Telegram DM ile giden şeylerin
+// (sipariş onayı, Randy kazanma, rütbe atlama vb.) sitede de tek bir yerde
+// toplanması için.
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // purchase_approved, purchase_rejected, randy_won, rank_up, referral_bonus, task_completed, sponsor_approved, sponsor_rejected
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  relatedId   String?  // ilgili kaydın ID'si (sipariş, Randy vb.) - detay linkine gitmek için
+  linkUrl     String?  // tıklanınca gidilecek sayfa (opsiyonel)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 // Puan geçmişi
@@ -681,6 +709,7 @@ model TaggingSettings {
   enabled         Boolean   @default(false) // Otomatik etiketleme aktif mi? (CRON ile)
   intervalMinutes Int       @default(60)
   tagMessage      String    @default("🎉 Selamlar!") @db.Text
+  minInactiveDays Int       @default(7) // En az kaç gündür yazmamış olmalı (örn. 7 = 1 hafta)
   lastTaggedAt    DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

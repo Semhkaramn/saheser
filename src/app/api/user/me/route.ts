@@ -49,6 +49,9 @@ export async function GET(request: NextRequest) {
                 pointHistory: {
                   orderBy: { createdAt: 'desc' },
                   take: 50
+                },
+                _count: {
+                  select: { referrals: true }
                 }
               }
             }),

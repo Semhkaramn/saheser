@@ -175,7 +175,8 @@ function RegisterModalContent() {
         body: JSON.stringify({
           email: formData.email,
           siteUsername: formData.siteUsername,
-          password: formData.password
+          password: formData.password,
+          referralCode: searchParams.get('ref') || (typeof window !== 'undefined' ? localStorage.getItem('pending_referral_code') : null) || null
         })
       })
 
@@ -190,6 +191,7 @@ function RegisterModalContent() {
 
       if (response.ok) {
         toast.success(data.message || 'Kayıt başarılı!')
+        try { localStorage.removeItem('pending_referral_code') } catch {}
         await refreshUser()
         setShowRegisterModal(false)
 

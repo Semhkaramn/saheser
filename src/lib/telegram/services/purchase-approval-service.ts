@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { sendTelegramMessage, editTelegramMessage, answerCallbackQuery } from '../core'
 import { isBotSystemEnabled } from '../bot-system-check'
 import { notifyOrderStatusChange } from '@/lib/notifications'
+import { createNotification } from '@/lib/services/notification-service'
 
 // randy-web'deki purchase onay akışından uyarlandı. Bir sipariş oluşunca,
 // ürün bir sponsora bağlıysa sponsorun approvalGroupId'sine, değilse genel
@@ -183,6 +184,18 @@ export async function handlePurchaseConfirm(query: any): Promise<boolean> {
     purchase.sponsorInfo, purchase.walletAddress, decisionRaw, !!purchase.item.sponsor?.approvalGroupId
   )
   await editTelegramMessage(chatId, query.message.message_id, text, reply_markup)
+
+  // Site içi bildirim - Telegram DM'in yanında, siteye girince de görsün.
+  await createNotification({
+    userId: purchase.user.id,
+    type: decisionRaw === 'approved' ? 'purchase_approved' : 'purchase_rejected',
+    title: decisionRaw === 'approved' ? '✅ Siparişin Onaylandı' : '❌ Siparişin Reddedildi',
+    message: decisionRaw === 'approved'
+      ? `"${purchase.item.name}" siparişin onaylandı ve teslim edildi.`
+      : `"${purchase.item.name}" siparişin reddedildi, ${purchase.pointsSpent} puan hesabına iade edildi.`,
+    relatedId: purchase.id,
+    linkUrl: '/market',
+  })
 
   // Kullanıcıya DM bildirimi - web admin panelinden onaylanan siparişlerle
   // aynı davranış (notify_order_approved ayarına saygı gösterir)

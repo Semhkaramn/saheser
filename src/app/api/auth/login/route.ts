@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { createToken, createAuthResponse } from '@/lib/auth'
 import { logActivity, extractRequestInfo } from '@/lib/services/activity-log-service'
+import { checkLoginRateLimit, resetLoginRateLimit } from '@/lib/rate-limit'
 
 // Validation schema
 const loginSchema = z.object({
@@ -14,6 +15,17 @@ const loginSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+
+    // 🔒 Hız sınırı - aynı IP'den 5 dakikada 5'ten fazla başarısız giriş
+    // denemesi olursa engelle (şifre tahmin etme/brute-force önlemi).
+    const { ipAddress } = extractRequestInfo(request)
+    const rateCheck = await checkLoginRateLimit(`site:${ipAddress}`)
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Çok fazla başarısız giriş denemesi. Lütfen birkaç dakika sonra tekrar dene.' },
+        { status: 429 }
+      )
+    }
 
     // Validate input
     const validation = loginSchema.safeParse(body)
@@ -85,6 +97,9 @@ export async function POST(request: NextRequest) {
         bannedBy: user.bannedBy
       }, { status: 403 })
     }
+
+    // Başarılı giriş - deneme sayacını sıfırla
+    await resetLoginRateLimit(`site:${ipAddress}`)
 
     // JWT token oluştur
     const token = await createToken({
