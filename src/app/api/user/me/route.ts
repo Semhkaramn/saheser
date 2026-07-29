@@ -95,6 +95,22 @@ export async function GET(request: NextRequest) {
           throw new Error('User not found')
         }
 
+        // 🔗 Referans sistemi eklenmeden ÖNCE oluşturulmuş hesapların davet
+        // kodu yok - profil sayfasına ilk girdiklerinde burada otomatik
+        // oluşturulup kaydediliyor, tekrar tekrar üretmemek için.
+        if (!user.referralCode) {
+          const base = (user.siteUsername || user.telegramUsername || 'uye').toLowerCase().replace(/[^a-z0-9]/g, '')
+          for (let i = 0; i < 5; i++) {
+            const candidate = `${base}${Math.floor(1000 + Math.random() * 9000)}`
+            const exists = await prisma.user.findUnique({ where: { referralCode: candidate }, select: { id: true } })
+            if (!exists) {
+              await prisma.user.update({ where: { id: user.id }, data: { referralCode: candidate } })
+              user.referralCode = candidate
+              break
+            }
+          }
+        }
+
         // Ban kontrolü
         if (user.isBanned) {
           return {

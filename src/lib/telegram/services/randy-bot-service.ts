@@ -6,7 +6,6 @@ import { logActivity } from '@/lib/services/activity-log-service'
 import { isBotSystemEnabled } from '../bot-system-check'
 import { renderTemplateByKey, getTemplateContent } from '@/lib/message-templates'
 import { SiteConfig } from '@/lib/site-config'
-import { createNotification } from '@/lib/services/notification-service'
 
 /**
  * Bot DM'i üzerinden bir Randy taslağı oluşturur. requirementType 'none' ise
@@ -341,19 +340,6 @@ export async function endRandy(randyId: string) {
         }
 
         await sendTelegramMessage(w.telegramId, dmMessage, { keyboard, parseMode: 'HTML' })
-
-        // Site içi bildirim - sadece hesabı bağlı olanlar için (bağlı değilse
-        // zaten üye olması gerektiği DM'de belirtiliyor).
-        if (w.linkedUserId) {
-          await createNotification({
-            userId: w.linkedUserId,
-            type: 'randy_won',
-            title: '🎉 Randy Kazandın!',
-            message: w.pointsAwarded > 0
-              ? `Randy çekilişini kazandın, ${w.pointsAwarded} puan hesabına eklendi.`
-              : `Randy çekilişini kazandın! Ödülünü almak için destek ekibiyle iletişime geç.`,
-          })
-        }
       } catch (err) {
         // Kullanıcı botu engellemiş olabilir, ya da geçersiz chat ID -
         // sessizce geçme, en azından logla ki teşhis edilebilsin.

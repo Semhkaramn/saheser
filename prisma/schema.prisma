@@ -243,7 +243,6 @@ model User {
   referredBy       User?           @relation("Referrals", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referrals        User[]          @relation("Referrals") // Bu kullanıcının davet ettiği kişiler
   referralBonusGiven Boolean       @default(false) // Davet bonusu zaten verildi mi (tekrar verilmesin diye)
-  notifications    Notification[]
 
   // Email/Password Authentication
   email            String?         @unique
@@ -435,22 +434,6 @@ model WheelSpin {
 // 🔔 Bildirim Merkezi - şu an ayrı ayrı Telegram DM ile giden şeylerin
 // (sipariş onayı, Randy kazanma, rütbe atlama vb.) sitede de tek bir yerde
 // toplanması için.
-model Notification {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        String   // purchase_approved, purchase_rejected, randy_won, rank_up, referral_bonus, task_completed, sponsor_approved, sponsor_rejected
-  title       String
-  message     String
-  isRead      Boolean  @default(false)
-  relatedId   String?  // ilgili kaydın ID'si (sipariş, Randy vb.) - detay linkine gitmek için
-  linkUrl     String?  // tıklanınca gidilecek sayfa (opsiyonel)
-  createdAt   DateTime @default(now())
-
-  @@index([userId, isRead])
-  @@index([userId, createdAt])
-}
-
 // Puan geçmişi
 model PointHistory {
   id               String          @id @default(cuid())

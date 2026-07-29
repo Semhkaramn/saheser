@@ -11,7 +11,6 @@ import { SITE_CONFIG } from '@/lib/site-config'
 import { optimizeCloudinaryImage } from '@/lib/utils'
 import PromocodeModal from '@/components/PromocodeModal'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
-import NotificationBell from '@/components/NotificationBell'
 
 export default function Header() {
   const { user, isAuthenticated, setShowLoginModal, setShowRegisterModal } = useAuth()
@@ -101,9 +100,6 @@ export default function Header() {
                     </span>
                   </div>
                 </div>
-
-                {/* Bildirimler */}
-                <NotificationBell />
 
                 {/* User Profile Button */}
                 <Link

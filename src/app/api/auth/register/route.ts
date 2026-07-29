@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { createToken, createAuthResponse } from '@/lib/auth'
 import { logRegister, extractRequestInfo } from '@/lib/services/activity-log-service'
-import { createNotification } from '@/lib/services/notification-service'
 
 // Validation schema
 const registerSchema = z.object({
@@ -138,19 +137,6 @@ export async function POST(request: NextRequest) {
           relatedId: referrer.id,
         },
       }).catch(() => {})
-
-      await createNotification({
-        userId: referrer.id,
-        type: 'referral_bonus',
-        title: '🎉 Davet Bonusu Kazandın!',
-        message: `${siteUsername} senin linkinle kayıt oldu, ${REFERRAL_BONUS_POINTS} puan kazandın.`,
-      })
-      await createNotification({
-        userId: user.id,
-        type: 'referral_bonus',
-        title: '🎉 Hoş Geldin Bonusu!',
-        message: `Davet linkiyle kayıt olduğun için ${REFERRAL_BONUS_POINTS} puan kazandın.`,
-      })
     }
 
     // Geçici doğrulama kaydını temizle - artık gerek yok
