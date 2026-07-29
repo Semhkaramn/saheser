@@ -149,6 +149,28 @@ async function main() {
   }
   console.log('✅ Bot system toggles created!')
 
+  // 🔗 Referans sistemi eklenmeden ÖNCE oluşturulmuş hesapların davet kodu
+  // yok - her deploy'da (bu script her zaman çalıştığı için) eksik olanlara
+  // otomatik bir tane atanıyor. Profil sayfasındaki anlık oluşturma
+  // (lazy generation) önbelleğe takılabildiği için bu daha güvenilir.
+  console.log('🔗 Backfilling referral codes...')
+  const usersWithoutCode = await prisma.user.findMany({
+    where: { referralCode: null },
+    select: { id: true, siteUsername: true, telegramUsername: true },
+  })
+  for (const u of usersWithoutCode) {
+    const base = (u.siteUsername || u.telegramUsername || 'uye').toLowerCase().replace(/[^a-z0-9]/g, '')
+    for (let i = 0; i < 5; i++) {
+      const candidate = `${base}${Math.floor(1000 + Math.random() * 9000)}`
+      const exists = await prisma.user.findUnique({ where: { referralCode: candidate }, select: { id: true } })
+      if (!exists) {
+        await prisma.user.update({ where: { id: u.id }, data: { referralCode: candidate } })
+        break
+      }
+    }
+  }
+  console.log(`✅ Referral codes backfilled for ${usersWithoutCode.length} user(s)!`)
+
   console.log('🎉 Seed completed!')
 }
 

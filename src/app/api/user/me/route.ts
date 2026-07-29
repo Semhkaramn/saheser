@@ -168,6 +168,8 @@ export async function GET(request: NextRequest) {
           totalMessages: messageStats.total,
           createdAt: user.createdAt,
           avatar: user.avatar,
+          referralCode: user.referralCode,
+          _count: { referrals: user._count.referrals },
           banned: false
         }
       },
