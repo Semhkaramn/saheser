@@ -59,14 +59,14 @@ export default function Header() {
 
           {/* Right Side - User Info / Auth Buttons */}
           <div className="flex items-center gap-2 lg:gap-4">
-            {/* Promocode Button - Hidden on mobile, visible on md+ */}
+            {/* Promocode Button - artık mobilde de görünüyor */}
             {isAuthenticated && user && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowPromocodeModal(true)}
                 aria-label="Promocode Kullan"
-                className="hidden md:flex text-xs lg:text-sm rounded-full"
+                className="flex text-xs lg:text-sm rounded-full px-2 lg:px-3"
                 style={{
                   borderColor: `${theme.colors.accent}80`,
                   color: theme.colors.accent

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -67,7 +67,7 @@ interface Order {
   }
 }
 
-export default function AdminShopPage() {
+function AdminShopPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [items, setItems] = useState<ShopItem[]>([])
@@ -1185,5 +1185,13 @@ function OrderCard({
         </div>
       </div>
     </Card>
+  )
+}
+
+export default function AdminShopPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminShopPageContent />
+    </Suspense>
   )
 }

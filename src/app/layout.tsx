@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import Script from "next/script";
 import { Unbounded, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
@@ -178,7 +179,9 @@ export default function RootLayout({
               <VisitTracker />
               {children}
               <LoginModal />
-              <RegisterModal />
+              <Suspense fallback={null}>
+                <RegisterModal />
+              </Suspense>
               <TelegramModalWrapper />
               <Toaster />
             </UserThemeProvider>

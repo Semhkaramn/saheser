@@ -1,6 +1,6 @@
 'use client'
 
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, Suspense, useEffect } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Sidebar from './Sidebar'
 import Header from './Header'
@@ -29,13 +29,19 @@ const SPONSOR_BANNER_PATHS = ['/']
 // sebep oluyordu. Artık hep aynı DOM'da kalıyor, hiç unmount olmuyor.
 const YATAY_BANNER_PATHS: string[] | null = null // null = her sayfada göster
 
-// ✅ FIX: UserThemeProvider kaldırıldı - zaten layout.tsx'de var (duplicate provider sorunu)
-export default function DashboardLayout({ children, showSponsorBanner, showYatayBanner }: DashboardLayoutProps) {
-  const pathname = usePathname()
+/**
+ * 🔗 Referans linki (?ref=KOD) ile gelen ziyaretçinin kodu, hangi sayfada
+ * gezinirse gezinsin kayıt olana kadar hatırlansın diye localStorage'a
+ * yazar. ⚠️ FIX: useSearchParams() KENDİ BAŞINA bir Suspense sınırı
+ * gerektiriyor - bunu doğrudan DashboardLayout içine koymak, onu kullanan
+ * HER sayfanın statik oluşturmasını (prerender) bozuyordu ("useSearchParams
+ * should be wrapped in a suspense boundary" build hatası). Bu yüzden ayrı,
+ * küçük bir bileşene alıp SADECE onu Suspense ile sarıyoruz - geri kalan
+ * layout statik kalabiliyor.
+ */
+function ReferralCapture() {
   const searchParams = useSearchParams()
 
-  // 🔗 Referans linki (?ref=KOD) ile gelen ziyaretçinin kodu, hangi
-  // sayfada gezinirse gezinsin kayıt olana kadar hatırlansın diye.
   useEffect(() => {
     const ref = searchParams.get('ref')
     if (ref) {
@@ -47,12 +53,22 @@ export default function DashboardLayout({ children, showSponsorBanner, showYatay
     }
   }, [searchParams])
 
+  return null
+}
+
+// ✅ FIX: UserThemeProvider kaldırıldı - zaten layout.tsx'de var (duplicate provider sorunu)
+export default function DashboardLayout({ children, showSponsorBanner, showYatayBanner }: DashboardLayoutProps) {
+  const pathname = usePathname()
+
   const resolvedShowSponsorBanner = showSponsorBanner ?? SPONSOR_BANNER_PATHS.includes(pathname)
   const resolvedShowYatayBanner = showYatayBanner ?? (YATAY_BANNER_PATHS === null ? true : YATAY_BANNER_PATHS.includes(pathname))
 
   return (
     <>
       <ThemeStyleInjector />
+      <Suspense fallback={null}>
+        <ReferralCapture />
+      </Suspense>
       <div className="min-h-screen flex flex-col overflow-x-hidden max-w-full">
         <Header />
         <Sidebar />
