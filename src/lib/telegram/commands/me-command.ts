@@ -58,7 +58,13 @@ export async function handleMeCommand(message: any) {
       dailyMessageCount: telegramUser.dailyMessageCount,
       weeklyMessageCount: telegramUser.weeklyMessageCount,
       monthlyMessageCount: telegramUser.monthlyMessageCount,
-      messageCount: telegramUser.messageCount
+      messageCount: telegramUser.messageCount,
+      stickerCount: telegramUser.stickerCount,
+      gifCount: telegramUser.gifCount,
+      photoCount: telegramUser.photoCount,
+      videoCount: telegramUser.videoCount,
+      voiceCount: telegramUser.voiceCount,
+      documentCount: telegramUser.documentCount
     }
 
     // ✅ Randy (çekiliş) katılım/kazanma istatistikleri - .ben komutunda da
@@ -259,7 +265,13 @@ export async function handleStatsStart(message: any, targetUserId: string) {
       dailyMessageCount: telegramUser.dailyMessageCount,
       weeklyMessageCount: telegramUser.weeklyMessageCount,
       monthlyMessageCount: telegramUser.monthlyMessageCount,
-      messageCount: telegramUser.messageCount
+      messageCount: telegramUser.messageCount,
+      stickerCount: telegramUser.stickerCount,
+      gifCount: telegramUser.gifCount,
+      photoCount: telegramUser.photoCount,
+      videoCount: telegramUser.videoCount,
+      voiceCount: telegramUser.voiceCount,
+      documentCount: telegramUser.documentCount
     }
 
     const siteUserForStart = await prisma.user.findUnique({

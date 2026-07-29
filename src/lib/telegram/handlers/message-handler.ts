@@ -276,12 +276,18 @@ export async function handleMessage(message: any) {
   const messageText = message.text || ''
   // ⚠️ FIX: Eskiden SADECE düz yazı mesajları sayılıyordu - biri sticker,
   // GIF, foto, video ya da sesli mesaj atarsa (yazı eklemeden) hiç
-  // puan/mesaj sayımına girmiyordu. Bunları da geçerli bir mesaj olarak
-  // sayıyoruz - "uzunluk" ölçülemeyeceği için ayrı bir bayrakla işaretliyoruz.
-  const isMediaMessage = !!(
-    message.sticker || message.animation || message.photo || message.video ||
-    message.voice || message.video_note || message.document || message.audio
-  )
+  // puan/mesaj sayımına girmiyordu. Artık her türü AYRI AYRI sayılıyor diye
+  // önce hangi türde olduğunu tespit ediyoruz (video_note = video daire,
+  // video sayılıyor; audio = document/dosya sayılıyor, ayrı bir alanı yok).
+  const mediaType: 'sticker' | 'gif' | 'photo' | 'video' | 'voice' | 'document' | null =
+    message.sticker ? 'sticker' :
+    message.animation ? 'gif' :
+    message.photo ? 'photo' :
+    message.video || message.video_note ? 'video' :
+    message.voice ? 'voice' :
+    message.document || message.audio ? 'document' :
+    null
+  const isMediaMessage = mediaType !== null
 
   // 🤖 BOT ADMİN PANELİ - private chat'te bekleyen bir mod varsa (toplu mesaj
   // yazımı, Randy mesajı/kazanan sayısı) önce onu işle, normal akışa girme
@@ -443,7 +449,8 @@ export async function handleMessage(message: any) {
           const winnerName = message.from?.username ? `@${message.from.username}` : (message.from?.first_name || 'Kullanıcı')
           const sent = await sendTelegramMessage(
             chatId,
-            `🎉 Tebrikler ${winnerName}!\n\n🎁 Ödül: ${awarded.prizeText}`
+            `🎉 Tebrikler ${winnerName}!\n\n🎁 Ödül: ${awarded.prizeText}`,
+            { replyToMessageId: message.message_id }
           )
           if (awarded.pinWinnerMessage && sent?.message_id) {
             await pinChatMessage(chatId, sent.message_id).catch(() => {})
@@ -534,6 +541,7 @@ export async function handleMessage(message: any) {
       lastName: message.from?.last_name,
       messageText,
       isMediaMessage,
+      mediaType,
       chatId
     })
   )
@@ -564,7 +572,11 @@ export async function handleMessage(message: any) {
   )
   if (awarded) {
     const winnerName = message.from?.username ? `@${message.from.username}` : (message.from?.first_name || 'Kullanıcı')
-    const sent = await sendTelegramMessage(chatId, `🎉 Tebrikler ${winnerName}!\n\n🎁 Ödül: ${awarded.prizeText}`)
+    const sent = await sendTelegramMessage(
+      chatId,
+      `🎉 Tebrikler ${winnerName}!\n\n🎁 Ödül: ${awarded.prizeText}`,
+      { replyToMessageId: message.message_id }
+    )
     if (awarded.pinWinnerMessage && sent?.message_id) {
       await pinChatMessage(chatId, sent.message_id).catch(() => {})
     }

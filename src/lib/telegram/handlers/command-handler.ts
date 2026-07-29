@@ -241,6 +241,12 @@ async function handleInfoCommand(message: any) {
     weeklyMessageCount: telegramUser.weeklyMessageCount,
     monthlyMessageCount: telegramUser.monthlyMessageCount,
     messageCount: telegramUser.messageCount,
+      stickerCount: telegramUser.stickerCount,
+      gifCount: telegramUser.gifCount,
+      photoCount: telegramUser.photoCount,
+      videoCount: telegramUser.videoCount,
+      voiceCount: telegramUser.voiceCount,
+      documentCount: telegramUser.documentCount,
   }
 
   const [siteUser, randyParticipationCount, randyWinCount, classicWinCount] = await Promise.all([

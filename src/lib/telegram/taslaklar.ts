@@ -49,6 +49,12 @@ export const ISTATISTIK = {
       weeklyMessageCount: number
       monthlyMessageCount: number
       messageCount: number
+      stickerCount?: number
+      gifCount?: number
+      photoCount?: number
+      videoCount?: number
+      voiceCount?: number
+      documentCount?: number
     },
     siteStats?: {
       points: number
@@ -62,13 +68,27 @@ export const ISTATISTIK = {
       won: number
     } | null
   ) => {
+    const hasBreakdown = stats.stickerCount !== undefined
+    const textMessageCount = hasBreakdown
+      ? stats.messageCount - (stats.stickerCount! + stats.gifCount! + stats.photoCount! + stats.videoCount! + stats.voiceCount! + stats.documentCount!)
+      : null
     let text =
       `📊 <b>${firstName} - Tüm İstatistiklerin</b>\n\n` +
       `<b>💬 Mesajlar</b>\n` +
       `📅 Bugün: ${stats.dailyMessageCount.toLocaleString()} mesaj\n` +
       `📆 Bu Hafta: ${stats.weeklyMessageCount.toLocaleString()} mesaj\n` +
       `🗓️ Bu Ay: ${stats.monthlyMessageCount.toLocaleString()} mesaj\n` +
-      `📈 Toplam: ${stats.messageCount.toLocaleString()} mesaj`
+      `📈 Toplam: ${stats.messageCount.toLocaleString()} mesaj` +
+      (hasBreakdown
+        ? `\n\n<b>📊 Mesaj Türü Kırılımı</b>\n` +
+          `📝 Yazı: ${textMessageCount!.toLocaleString()}\n` +
+          `🎭 Sticker: ${stats.stickerCount!.toLocaleString()}\n` +
+          `🎬 GIF: ${stats.gifCount!.toLocaleString()}\n` +
+          `📷 Fotoğraf: ${stats.photoCount!.toLocaleString()}\n` +
+          `📹 Video: ${stats.videoCount!.toLocaleString()}\n` +
+          `🎙️ Sesli Mesaj: ${stats.voiceCount!.toLocaleString()}\n` +
+          `📎 Dosya: ${stats.documentCount!.toLocaleString()}`
+        : '')
 
     if (siteStats) {
       text +=

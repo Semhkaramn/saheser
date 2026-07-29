@@ -18,6 +18,7 @@ export interface MessageRewardInput {
   lastName?: string
   messageText: string
   isMediaMessage?: boolean
+  mediaType?: 'sticker' | 'gif' | 'photo' | 'video' | 'voice' | 'document' | null
   chatId: number
 }
 
@@ -80,7 +81,7 @@ async function invalidateLeaderboardCacheThrottled() {
 export async function processMessageReward(
   input: MessageRewardInput
 ): Promise<MessageRewardResult> {
-  const { userId, username, firstName, lastName, messageText, isMediaMessage, chatId } = input
+  const { userId, username, firstName, lastName, messageText, isMediaMessage, mediaType, chatId } = input
 
   // 🔒 CRITICAL: Anonim admin ve Telegram servis hesabını veritabanına KAYDETME!
   // Bu hesaplar puan kazanmamalı ve leaderboard'a eklenmemeli
@@ -152,6 +153,12 @@ export async function processMessageReward(
         firstName: firstName || undefined,
         lastName: lastName || undefined,
         messageCount: { increment: 1 },
+        ...(mediaType === 'sticker' ? { stickerCount: { increment: 1 } } : {}),
+        ...(mediaType === 'gif' ? { gifCount: { increment: 1 } } : {}),
+        ...(mediaType === 'photo' ? { photoCount: { increment: 1 } } : {}),
+        ...(mediaType === 'video' ? { videoCount: { increment: 1 } } : {}),
+        ...(mediaType === 'voice' ? { voiceCount: { increment: 1 } } : {}),
+        ...(mediaType === 'document' ? { documentCount: { increment: 1 } } : {}),
         dailyMessageCount: { increment: 1 },
         weeklyMessageCount: { increment: 1 },
         monthlyMessageCount: { increment: 1 },
@@ -168,6 +175,12 @@ export async function processMessageReward(
         firstName: firstName || null,
         lastName: lastName || null,
         messageCount: 1,
+        stickerCount: mediaType === 'sticker' ? 1 : 0,
+        gifCount: mediaType === 'gif' ? 1 : 0,
+        photoCount: mediaType === 'photo' ? 1 : 0,
+        videoCount: mediaType === 'video' ? 1 : 0,
+        voiceCount: mediaType === 'voice' ? 1 : 0,
+        documentCount: mediaType === 'document' ? 1 : 0,
         dailyMessageCount: 1,
         weeklyMessageCount: 1,
         monthlyMessageCount: 1,

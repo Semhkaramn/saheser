@@ -672,7 +672,13 @@ model TelegramGroupUser {
   hadStart         Boolean         @default(false) // Kullanıcı bota /start yaptı mı?
 
   // İstatistikler - Tüm tarihler Türkiye saatine (UTC+3) göre
-  messageCount           Int       @default(0) // Toplam mesaj sayısı (tüm zamanlar)
+  messageCount           Int       @default(0) // Toplam mesaj sayısı (yazı + sticker/gif/foto/video hepsi dahil)
+  stickerCount           Int       @default(0) // Kaç sticker attı
+  gifCount               Int       @default(0) // Kaç GIF/animasyon attı
+  photoCount             Int       @default(0) // Kaç fotoğraf attı
+  videoCount             Int       @default(0) // Kaç video attı
+  voiceCount             Int       @default(0) // Kaç sesli mesaj attı
+  documentCount          Int       @default(0) // Kaç dosya/belge attı
   dailyMessageCount      Int       @default(0) // Bugünkü mesaj sayısı (Türkiye saatine göre)
   weeklyMessageCount     Int       @default(0) // Bu haftaki mesaj sayısı (Türkiye saatine göre)
   monthlyMessageCount    Int       @default(0) // Bu ayki mesaj sayısı (Türkiye saatine göre)

@@ -264,13 +264,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // 2️⃣ Mesaj kontrolü
-    if (!update.message || !update.message.text) {
-      return NextResponse.json({ ok: true, message: 'No text message' })
+    // 2️⃣ Mesaj kontrolü - ⚠️ FIX: eskiden "message.text" yoksa (sticker,
+    // GIF, foto, video gibi) mesaj burada tamamen siliniyordu, message-
+    // handler.ts'e hiç ulaşmıyordu - orada eklediğimiz "medya mesajı da
+    // sayılsın" mantığı bu yüzden hiç devreye giremiyordu. Artık sadece
+    // mesaj objesinin kendisi yoksa (gerçekten boş bir update ise) çıkıyoruz.
+    if (!update.message) {
+      return NextResponse.json({ ok: true, message: 'No message' })
     }
 
     const message = update.message
-    const messageText = message.text.trim()
+    const messageText = (message.text || '').trim()
 
     // 3️⃣ Komut mu, normal mesaj mı?
     const lowerText = messageText.toLowerCase()
