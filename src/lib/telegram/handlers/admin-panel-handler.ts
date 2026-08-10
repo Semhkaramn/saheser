@@ -38,12 +38,7 @@ function buildGroupListMessage(groups: { groupId: string; title: string | null; 
 
 // Telegram bot butonlarında gerçek renk (kırmızı/yeşil arka plan) desteği
 // YOK - Bot API bunu sunmuyor. Bunun yerine "renkmiş" hissi veren tutarlı bir
-// emoji dili kullanıyoruz: 🟢 Açık / 🔴 Kapalı, ve bölüm başlıkları için
-// tıklanamaz (noop) ayraç satırları - menü artık düz bir liste değil,
-// gruplanmış bir sayfa gibi okunuyor.
-function sectionHeader(label: string) {
-  return [{ text: `── ${label} ──`, callback_data: 'noop' }]
-}
+// emoji dili kullanıyoruz: 🟢 Açık / 🔴 Kapalı.
 
 // TG kullanıcı adı (@ olsun olmasın) veya ID'den, önce grup içi görülmüş
 // kullanıcı kaydına (TelegramGroupUser), oradan da (varsa) siteye kayıtlı
@@ -202,39 +197,27 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
     // (broadcast, etiketleme, aktiflik yarışması, haftalık ödül, klasik
     // çekiliş, GPT sohbet) anlamsız - randy-web'de de kanal menüsü sadece
     // Randy + Çapraz Ban içerir.
-    rows.push(sectionHeader('🎲 Çekilişler'))
     rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
     rows.push([{ text: '🎲 Randy Başlat (bu kanalda)', callback_data: `admrandy_new:${group.groupId}` }])
-    rows.push(sectionHeader('🛡️ Moderasyon'))
     rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` }])
   } else {
-    rows.push(sectionHeader('🎁 Çekilişler'))
     rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
     rows.push([{
       text: activeGiveaway ? '📊 Klasik Çekiliş: Devam Ediyor (Durum)' : '🎁 Klasik Çekiliş Ayarları',
       callback_data: `admgiveawaycfg:${group.groupId}`,
     }])
-
-    rows.push(sectionHeader('🏆 Ödül & Aktiflik'))
     rows.push([{ text: contestRunning ? '📈 Aktiflik Yarışması: 🟢 Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` }])
     rows.push([{ text: `🏆 Haftalık Ödüller: ${weeklyOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admweeklymenu:${group.groupId}` }])
-
-    rows.push(sectionHeader('🏷️ Etiketleme'))
     rows.push([{ text: '🏷️ Üyeleri Etiketle', callback_data: `admtag_new:${group.groupId}` }])
     rows.push([{ text: `⚙️ Otomatik Etiketleme: ${autoTagOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admautotagmenu:${group.groupId}` }])
     rows.push([{ text: '🚫 Etiketleme Hariç Listesi', callback_data: `admtagexcl:${group.groupId}` }])
-
-    rows.push(sectionHeader('💬 Sohbet & Moderasyon'))
     rows.push([{ text: `🤖 GPT Sohbet: ${gptOn ? `🟢 Açık (“${gptSettings?.triggerWord || 'harley'}”)` : '🔴 Kapalı'}`, callback_data: `admgptmenu:${group.groupId}` }])
     rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` }])
     rows.push([{ text: '📢 Üyelere Mesaj Gönder', callback_data: `admbroadcast:${group.groupId}` }])
   }
 
-  rows.push(sectionHeader('⚙️ Genel'))
   rows.push([{ text: '🔗 Sponsor / Ref Kontrol', callback_data: 'admrefmenu' }])
-  rows.push([
-    { text: '🔄 Grup Değiştir', callback_data: 'admgroups' },
-  ])
+  rows.push([{ text: '🔄 Grup Değiştir', callback_data: 'admgroups' }])
 
   return {
     text: `⚙️ <b>${group.title || group.groupId}</b>${isChannel ? ' (kanal)' : ''}\n\nNe yapmak istersin?`,

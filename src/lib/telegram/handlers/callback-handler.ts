@@ -99,6 +99,9 @@ export async function handleCallbackQuery(query: any) {
   // bir buton eklendiğinde burayı güncellemeye gerek yok.
   if (
     query.data === 'admgroups' ||
+    query.data === 'admrefmenu' ||
+    query.data === 'admrefsearch' ||
+    query.data === 'noop' ||
     /^(adm[a-z_]*|randy[a-z_]*|rdefwc[a-z_]*):/.test(query.data) ||
     query.data === 'randywcadd' ||
     query.data === 'randywcdone'
