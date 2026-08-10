@@ -5,7 +5,7 @@ import { startRandy, endRandy } from '../services/randy-bot-service'
 import { sendBroadcastToAllUsers } from '../services/broadcast-service'
 import { runTagging, stopTaggingRun, getTaggingRunStatus, getTaggingSettings, setTaggingSettings } from '../services/tagging-service'
 import { isCrossBanEnabled, setCrossBanEnabled } from '../services/cross-ban-service'
-import { createClassicGiveaway, endClassicGiveaway, cancelClassicGiveaway, getActiveClassicGiveaway, getClassicGiveawayStatus } from '../services/classic-giveaway-service'
+import { createClassicGiveaway, endClassicGiveaway, cancelClassicGiveaway, getActiveClassicGiveaway, getClassicGiveawayStatus, getClassicGiveawaySettings, saveClassicGiveawaySettings } from '../services/classic-giveaway-service'
 import { getGptSettings, setGptSettings } from '../services/gpt-service'
 import { getActivityContestSettings, startActivityContest, stopActivityContestAndAnnounce, getActivityRewards, setActivityReward } from '../services/activity-rewards-service'
 import { getWeeklyRewardSettings, setWeeklyRewardSettings, getWeeklyRewards, setWeeklyReward } from '../services/weekly-rewards-service'
@@ -26,6 +26,7 @@ function buildGroupListMessage(groups: { groupId: string; title: string | null; 
     callback_data: `admgrp:${g.groupId}`,
   }])
   rows.push([{ text: '📢 Tüm Kullanıcılara Mesaj Gönder', callback_data: 'admbroadcast:all' }])
+  rows.push([{ text: '🔗 Sponsor / Ref Kontrol', callback_data: 'admrefmenu' }])
 
   return {
     text: groups.length === 0
@@ -34,6 +35,152 @@ function buildGroupListMessage(groups: { groupId: string; title: string | null; 
     reply_markup: { inline_keyboard: rows },
   }
 }
+
+// Telegram bot butonlarında gerçek renk (kırmızı/yeşil arka plan) desteği
+// YOK - Bot API bunu sunmuyor. Bunun yerine "renkmiş" hissi veren tutarlı bir
+// emoji dili kullanıyoruz: 🟢 Açık / 🔴 Kapalı, ve bölüm başlıkları için
+// tıklanamaz (noop) ayraç satırları - menü artık düz bir liste değil,
+// gruplanmış bir sayfa gibi okunuyor.
+function sectionHeader(label: string) {
+  return [{ text: `── ${label} ──`, callback_data: 'noop' }]
+}
+
+// TG kullanıcı adı (@ olsun olmasın) veya ID'den, önce grup içi görülmüş
+// kullanıcı kaydına (TelegramGroupUser), oradan da (varsa) siteye kayıtlı
+// User hesabına ulaşır. /ekle, /sil komutlarındaki mantıkla aynı.
+async function resolveTelegramUserForRef(raw: string) {
+  const clean = raw.replace(/^@/, '').trim()
+  let telegramId: string | null = null
+  let username: string | null = null
+  if (/^\d+$/.test(clean)) telegramId = clean
+  else username = clean
+
+  const groupUser = await prisma.telegramGroupUser.findFirst({
+    where: telegramId ? { telegramId } : { username: { equals: username!, mode: 'insensitive' } },
+  })
+  const resolvedTelegramId = groupUser?.telegramId || telegramId
+  if (!resolvedTelegramId) return null
+  const siteUser = await prisma.user.findUnique({ where: { telegramId: resolvedTelegramId } })
+  return { siteUser, groupUser, resolvedTelegramId }
+}
+
+function refStatusLabel(status: string) {
+  if (status === 'approved') return '✅ Onaylı'
+  if (status === 'rejected') return '❌ Reddedildi'
+  return '⏳ Bekliyor'
+}
+
+async function buildRefMenuMessage() {
+  return {
+    text: [
+      '🔗 <b>Sponsor / Ref Kontrol</b>',
+      '',
+      'Bir üyenin hangi sponsorlara kayıtlı olduğunu, ya da bir sponsora kimlerin kayıtlı olduğunu buradan görebilirsin.',
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🔍 Üye Sorgula (kullanıcı adı / ID)', callback_data: 'admrefsearch' }],
+        [{ text: '📋 Sponsor Listesi', callback_data: 'admrefsponsors:0' }],
+        [{ text: '⬅️ Geri', callback_data: 'admgroups' }],
+      ],
+    },
+  }
+}
+
+async function buildSponsorListMessage(page: number) {
+  const PAGE_SIZE = 8
+  const sponsors = await prisma.sponsor.findMany({ orderBy: [{ order: 'asc' }, { name: 'asc' }] })
+  const totalPages = Math.max(1, Math.ceil(sponsors.length / PAGE_SIZE))
+  const pageSponsors = sponsors.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
+
+  const rows: { text: string; callback_data: string }[][] = pageSponsors.map((s: { id: string; name: string; isActive: boolean }) => [{
+    text: `${s.isActive ? '🟢' : '🔴'} ${s.name}`,
+    callback_data: `admrefsponsor:${s.id}`,
+  }])
+
+  const navRow: { text: string; callback_data: string }[] = []
+  if (page > 0) navRow.push({ text: '⬅️ Önceki', callback_data: `admrefsponsors:${page - 1}` })
+  if (page < totalPages - 1) navRow.push({ text: 'Sonraki ➡️', callback_data: `admrefsponsors:${page + 1}` })
+  if (navRow.length) rows.push(navRow)
+
+  rows.push([{ text: '⬅️ Geri', callback_data: 'admrefmenu' }])
+
+  return {
+    text: sponsors.length === 0
+      ? '📋 Henüz hiç sponsor eklenmemiş.'
+      : `📋 <b>Sponsorlar</b> (${page + 1}/${totalPages})\n\nBir sponsora tıkla, sonra kontrol etmek istediğin üye(ler)i yaz:`,
+    reply_markup: { inline_keyboard: rows },
+  }
+}
+
+// Sponsor seçildiğinde artık otomatik "hepsini göster" yapmıyoruz - admin
+// istediği üye(leri) kullanıcı adı/ID olarak yazıyor (alt alta ya da tek
+// tek), bot sadece o isimlerin bu sponsordaki onay durumunu alt alta
+// listeliyor.
+async function buildSponsorCheckPromptMessage(sponsorId: string) {
+  const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } })
+  if (!sponsor) return { text: '⚠️ Sponsor bulunamadı.', reply_markup: { inline_keyboard: [[{ text: '⬅️ Geri', callback_data: 'admrefsponsors:0' }]] } }
+
+  return {
+    text: [
+      `📋 <b>${sponsor.name}</b>`,
+      '',
+      '✍️ Kontrol etmek istediğin üye(ler)in bu sponsora KAYDOLURKEN girdiği bilgiyi yaz (sponsor sitesindeki kullanıcı adı / ID / e-posta - Telegram kullanıcı adı DEĞİL).',
+      'Birden fazla kişi için her birini alt alta (yeni satıra) yaz, tek kişi için tek satır yeterli.',
+      '',
+      '<i>Örnek:</i>\n<code>ahmet123\nmehmet_dogan\nselin@mail.com</code>',
+    ].join('\n'),
+    reply_markup: { inline_keyboard: [[{ text: '❌ İptal', callback_data: 'admrefsponsors:0' }]] },
+  }
+}
+
+// ✅ ÖNEMLİ: Buraya yazılanlar Telegram kullanıcı adı DEĞİL, üyenin o
+// sponsora KAYDEDERKEN girdiği bilgi (identifier - sponsor sitesindeki
+// kullanıcı adı/ID/e-posta). Bu yüzden Telegram'dan değil, doğrudan
+// UserSponsorInfo.identifier alanından eşleştirme yapılıyor.
+async function buildSponsorCheckResultMessage(sponsorId: string, rawInput: string) {
+  const sponsor = await prisma.sponsor.findUnique({ where: { id: sponsorId } })
+  if (!sponsor) return { text: '⚠️ Sponsor bulunamadı.', reply_markup: { inline_keyboard: [[{ text: '⬅️ Geri', callback_data: 'admrefsponsors:0' }]] } }
+
+  const tokens = rawInput
+    .split(/[\n,]+/)
+    .map((t) => t.trim().replace(/^@/, ''))
+    .filter(Boolean)
+
+  const lines: string[] = []
+  for (const token of tokens) {
+    const info = await prisma.userSponsorInfo.findFirst({
+      where: { sponsorId, identifier: { equals: token, mode: 'insensitive' } },
+      include: { user: { select: { telegramUsername: true, firstName: true, siteUsername: true } } },
+    })
+
+    if (!info) {
+      lines.push(`• ${token} — ❔ Bu bilgiyle bu sponsora kayıt bulunamadı`)
+      continue
+    }
+
+    const displayName = info.user.telegramUsername
+      ? `@${info.user.telegramUsername}`
+      : (info.user.siteUsername || info.user.firstName || token)
+
+    lines.push(`• <b>${token}</b> (${displayName}) — ${refStatusLabel(info.status)}`)
+  }
+
+  return {
+    text: [
+      `📋 <b>${sponsor.name}</b> — Sorgu Sonucu`,
+      '',
+      lines.length ? lines.join('\n') : 'Hiçbir geçerli bilgi yazılmadı.',
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🔁 Yeniden Sorgula', callback_data: `admrefsponsor:${sponsorId}` }],
+        [{ text: '⬅️ Sponsor Listesi', callback_data: 'admrefsponsors:0' }],
+      ],
+    },
+  }
+}
+
 
 async function buildGroupMenuMessage(group: { groupId: string; title: string | null; chatType?: string }) {
   const isChannel = group.chatType === 'channel'
@@ -55,25 +202,39 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
     // (broadcast, etiketleme, aktiflik yarışması, haftalık ödül, klasik
     // çekiliş, GPT sohbet) anlamsız - randy-web'de de kanal menüsü sadece
     // Randy + Çapraz Ban içerir.
+    rows.push(sectionHeader('🎲 Çekilişler'))
     rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
     rows.push([{ text: '🎲 Randy Başlat (bu kanalda)', callback_data: `admrandy_new:${group.groupId}` }])
-    rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admcrossban:${group.groupId}` }])
+    rows.push(sectionHeader('🛡️ Moderasyon'))
+    rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` }])
   } else {
-    rows.push([{ text: '📢 Üyelere Mesaj Gönder', callback_data: `admbroadcast:${group.groupId}` }])
+    rows.push(sectionHeader('🎁 Çekilişler'))
     rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
     rows.push([{
-      text: activeGiveaway ? '📊 Klasik Çekiliş: Devam Ediyor (Durum)' : '🎁 Klasik Çekiliş Başlat',
-      callback_data: `admgiveaway_new:${group.groupId}`,
+      text: activeGiveaway ? '📊 Klasik Çekiliş: Devam Ediyor (Durum)' : '🎁 Klasik Çekiliş Ayarları',
+      callback_data: `admgiveawaycfg:${group.groupId}`,
     }])
+
+    rows.push(sectionHeader('🏆 Ödül & Aktiflik'))
+    rows.push([{ text: contestRunning ? '📈 Aktiflik Yarışması: 🟢 Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` }])
+    rows.push([{ text: `🏆 Haftalık Ödüller: ${weeklyOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admweeklymenu:${group.groupId}` }])
+
+    rows.push(sectionHeader('🏷️ Etiketleme'))
     rows.push([{ text: '🏷️ Üyeleri Etiketle', callback_data: `admtag_new:${group.groupId}` }])
-    rows.push([{ text: `⚙️ Otomatik Etiketleme: ${autoTagOn ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admautotagmenu:${group.groupId}` }])
+    rows.push([{ text: `⚙️ Otomatik Etiketleme: ${autoTagOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admautotagmenu:${group.groupId}` }])
     rows.push([{ text: '🚫 Etiketleme Hariç Listesi', callback_data: `admtagexcl:${group.groupId}` }])
-    rows.push([{ text: contestRunning ? '📈 Aktiflik Yarışması: Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` }])
-    rows.push([{ text: `🏆 Haftalık Ödüller: ${weeklyOn ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admweeklymenu:${group.groupId}` }])
-    rows.push([{ text: `🤖 GPT Sohbet: ${gptOn ? `Açık ✅ (“${gptSettings?.triggerWord || 'harley'}”)` : 'Kapalı ❌'}`, callback_data: `admgptmenu:${group.groupId}` }])
-    rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admcrossban:${group.groupId}` }])
+
+    rows.push(sectionHeader('💬 Sohbet & Moderasyon'))
+    rows.push([{ text: `🤖 GPT Sohbet: ${gptOn ? `🟢 Açık (“${gptSettings?.triggerWord || 'harley'}”)` : '🔴 Kapalı'}`, callback_data: `admgptmenu:${group.groupId}` }])
+    rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` }])
+    rows.push([{ text: '📢 Üyelere Mesaj Gönder', callback_data: `admbroadcast:${group.groupId}` }])
   }
-  rows.push([{ text: '⬅️ Gruplara Dön', callback_data: 'admgroups' }])
+
+  rows.push(sectionHeader('⚙️ Genel'))
+  rows.push([{ text: '🔗 Sponsor / Ref Kontrol', callback_data: 'admrefmenu' }])
+  rows.push([
+    { text: '🔄 Grup Değiştir', callback_data: 'admgroups' },
+  ])
 
   return {
     text: `⚙️ <b>${group.title || group.groupId}</b>${isChannel ? ' (kanal)' : ''}\n\nNe yapmak istersin?`,
@@ -356,6 +517,65 @@ async function buildRandyPointsMenuMessage(group: { groupId: string; title: stri
   }
 }
 
+// Klasik çekiliş ayar ekranı - Randy'deki gibi TAMAMEN buton tabanlı ve
+// KALICI: admin ödül metni/süre/kazanan sayısı/puanı bir kere ayarlar,
+// "Çekilişi Başlat" her seferinde bu kayıtlı ayarları kullanır - artık her
+// başlatışta sırayla soru sorulmuyor.
+async function buildClassicGiveawayConfigMessage(group: { groupId: string; title: string | null }) {
+  const settings = await getClassicGiveawaySettings(group.groupId)
+  const prizeText = settings?.defaultPrizeText
+  const hours = settings?.defaultDurationHours ?? 24
+  const winnerCount = settings?.defaultWinnerCount ?? 1
+  const points = settings?.defaultPrizePoints ?? 0
+
+  return {
+    text: [
+      `🎁 <b>Klasik Çekiliş Ayarları — ${group.title || group.groupId}</b>`,
+      '',
+      `Ödül metni: <b>${prizeText ? '✅ ayarlandı' : '❌ ayarlanmadı'}</b>`,
+      prizeText ? `<i>"${prizeText.slice(0, 80)}${prizeText.length > 80 ? '...' : ''}"</i>` : '',
+      `Süre: <b>${hours} saat</b>`,
+      `Kazanan sayısı: <b>${winnerCount}</b>`,
+      `Puan ödülü: <b>${points ? `${points} puan` : 'kapalı'}</b>`,
+      '',
+      'Bu ayarları bir kere yap - "Çekilişi Başlat" her tıklandığında baştan hiçbir şey sormadan bu ayarlarla anında yeni bir çekiliş açar.',
+    ].filter(Boolean).join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✍️ Ödül Metnini Ayarla', callback_data: `giveawaymsg:${group.groupId}` }],
+        [{ text: `⏱️ Süre (${hours} saat)`, callback_data: `giveawaydur:${group.groupId}` }],
+        [{ text: `🔢 Kazanan Sayısı (${winnerCount})`, callback_data: `giveawaywin:${group.groupId}` }],
+        [{ text: `💰 Puan Ödülü (${points ? `${points} puan` : 'kapalı'})`, callback_data: `giveawayptsmenu:${group.groupId}` }],
+        [{ text: '🎁 Çekilişi Başlat', callback_data: `giveawaystart:${group.groupId}` }],
+        [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
+      ],
+    },
+  }
+}
+
+async function buildClassicGiveawayPointsMenuMessage(group: { groupId: string; title: string | null }) {
+  const settings = await getClassicGiveawaySettings(group.groupId)
+  const points = settings?.defaultPrizePoints ?? 0
+
+  return {
+    text: [
+      `💰 <b>Puan Ödülü — ${group.title || group.groupId}</b>`,
+      '',
+      `Şu an: <b>${points ? `${points} puan` : 'kapalı'}</b>`,
+      '',
+      'Çekilişi kazanana (site hesabı bağlıysa) otomatik eklenecek puan miktarı. "Puanı Kaldır" ödülü tamamen kapatır.',
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '➕ Puan Ekle / Değiştir', callback_data: `giveawaypts_add:${group.groupId}` }],
+        [{ text: '🗑️ Puanı Kaldır (Kapat)', callback_data: `giveawaypts_clear:${group.groupId}` }],
+        [{ text: '⬅️ Geri', callback_data: `admgiveawaycfg:${group.groupId}` }],
+      ],
+    },
+  }
+}
+
+
 // Kanal şartı alt menüsü - bilinen tüm kanallar tikli (☑️/⬜) liste olarak
 // gösterilir, tıklayınca açılıp kapanır.
 async function buildRandyChannelListMessage(group: { groupId: string; title: string | null }) {
@@ -390,6 +610,60 @@ async function buildRandyChannelListMessage(group: { groupId: string; title: str
 // ─── Komut girişi: /panel ───────────────────────────────────────────────────
 
 
+/**
+ * "Çekilişi Başlat" butonuna basılınca çağrılır - kayıtlı sabit ayarları
+ * (ClassicGiveawaySettings) kullanarak hiçbir soru sormadan anında yeni bir
+ * klasik çekiliş açar ve gruba duyurur. Randy'deki "/randy" komutunun aynısı:
+ * ayarlar bir kere yapılır, başlatmak her seferinde tek tıkla olur.
+ */
+async function finalizeClassicGiveaway(telegramId: string, chatId: number | string, messageId: number, groupId: string) {
+  const settings = await getClassicGiveawaySettings(groupId)
+  const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+
+  const backToMenu = async (statusLine: string) => {
+    if (group) {
+      const { text: menuText, reply_markup } = await buildGroupMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, `${statusLine}\n\n${menuText}`, reply_markup)
+    } else {
+      await editTelegramMessage(chatId, messageId, statusLine)
+    }
+  }
+
+  if (!settings?.defaultPrizeText) {
+    await backToMenu('⚠️ Önce ödül metnini ayarlamalısın (Klasik Çekiliş Ayarları içinden).')
+    return
+  }
+
+  const winnerCount = settings.defaultWinnerCount || 1
+  const hours = settings.defaultDurationHours || 24
+  const prizePoints = settings.defaultPrizePoints || 0
+
+  const result = await createClassicGiveaway({
+    groupId,
+    creatorTelegramId: telegramId,
+    prizeText: settings.defaultPrizeText,
+    prizePoints,
+    durationHours: hours,
+    winnerCount,
+    maxWinsPerUser: settings.maxWinsPerUser ?? undefined,
+  })
+
+  if (!result.ok) {
+    await backToMenu(`⚠️ Çekiliş başlatılamadı: ${result.error}`)
+    return
+  }
+
+  const pointsLine = prizePoints > 0 ? `\n💰 Otomatik Puan Ödülü: ${prizePoints} puan (site hesabı bağlıysa otomatik yatar)` : ''
+  const announcement = await sendTelegramMessage(
+    groupId,
+    `🎁 <b>Klasik Çekiliş Başladı!</b>\n\n🏆 Ödül: ${result.giveaway.prizeText}${pointsLine}\n👥 Kazanan sayısı: ${winnerCount}\n⏱️ Süre: ${hours} saat\n\nBelirlenen rastgele anlarda mesaj atan ilk kişi(ler) ödülü kazanır. Şansını dene, mesaj atmaya devam et!`
+  )
+  if (announcement?.message_id) {
+    await pinChatMessage(groupId, announcement.message_id).catch(() => {})
+  }
+  await backToMenu('✅ Klasik çekiliş gruba duyuruldu!')
+}
+
 export async function getAdminGroupsForTelegramId(telegramId: string) {
   const groups = await prisma.telegramGroup.findMany({ where: { isActive: true }, orderBy: { title: 'asc' } })
 
@@ -417,11 +691,26 @@ export async function handleAdminPanelCommand(message: any) {
 
   const adminGroups = await getAdminGroupsForTelegramId(telegramId)
 
+  const existing = await prisma.botAdminSession.findUnique({ where: { telegramId } })
+
   await prisma.botAdminSession.upsert({
     where: { telegramId },
     update: { groupId: null, mode: null, draftTitle: null, draftMessage: null },
     create: { telegramId },
   })
+
+  // 🔄 Daha önce bir grup seçilmişse (ve admin hâlâ o grubun yöneticisiyse)
+  // her /panel açılışında baştan grup seçtirmek yerine direkt o grubun
+  // menüsüne düşülür - "🔄 Grup Değiştir" butonuyla istenirse değiştirilir.
+  const lastGroup = existing?.lastGroupId
+    ? adminGroups.find((g: { groupId: string }) => g.groupId === existing.lastGroupId)
+    : null
+
+  if (lastGroup) {
+    const { text, reply_markup } = await buildGroupMenuMessage(lastGroup)
+    await sendTelegramMessage(chatId, text, { keyboard: reply_markup })
+    return NextResponse.json({ ok: true })
+  }
 
   const { text, reply_markup } = buildGroupListMessage(adminGroups)
   await sendTelegramMessage(chatId, text, { keyboard: reply_markup })
@@ -436,9 +725,61 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
   const chatId = query.message.chat.id
   const messageId = query.message.message_id
 
+  if (data === 'noop') {
+    // Bölüm başlığı ayraçları - tıklanabilir görünse de hiçbir işlem yapmaz.
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
   if (data === 'admgroups') {
     const adminGroups = await getAdminGroupsForTelegramId(telegramId)
     const { text, reply_markup } = buildGroupListMessage(adminGroups)
+    await editTelegramMessage(chatId, messageId, text, reply_markup)
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data === 'admrefmenu') {
+    const adminGroups = await getAdminGroupsForTelegramId(telegramId)
+    if (adminGroups.length === 0) {
+      await answerCallbackQuery(query.id, '⛔ Bu özellik için en az bir grupta admin olman gerekiyor.', true)
+      return true
+    }
+    const { text, reply_markup } = await buildRefMenuMessage()
+    await editTelegramMessage(chatId, messageId, text, reply_markup)
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data === 'admrefsearch') {
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_ref_search', groupId: null, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_ref_search', menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(chatId, messageId, '🔍 Üyenin Telegram kullanıcı adını (@ olsun olmasın) ya da ID\'sini yaz:', {
+      inline_keyboard: [[{ text: '❌ İptal', callback_data: 'admrefmenu' }]],
+    })
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admrefsponsors:')) {
+    const page = parseInt(data.replace('admrefsponsors:', ''), 10) || 0
+    const { text, reply_markup } = await buildSponsorListMessage(page)
+    await editTelegramMessage(chatId, messageId, text, reply_markup)
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admrefsponsor:')) {
+    const sponsorId = data.replace('admrefsponsor:', '')
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_ref_sponsor_check', groupId: null, draftDataJson: JSON.stringify({ sponsorId }), menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_ref_sponsor_check', draftDataJson: JSON.stringify({ sponsorId }), menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    const { text, reply_markup } = await buildSponsorCheckPromptMessage(sponsorId)
     await editTelegramMessage(chatId, messageId, text, reply_markup)
     await answerCallbackQuery(query.id)
     return true
@@ -458,8 +799,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     }
     await prisma.botAdminSession.upsert({
       where: { telegramId },
-      update: { groupId, mode: null, draftTitle: null, draftMessage: null },
-      create: { telegramId, groupId },
+      update: { groupId, lastGroupId: groupId, mode: null, draftTitle: null, draftMessage: null },
+      create: { telegramId, groupId, lastGroupId: groupId },
     })
     const { text, reply_markup } = await buildGroupMenuMessage(group)
     await editTelegramMessage(chatId, messageId, text, reply_markup)
@@ -521,6 +862,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     // geri dönüyor. Bunun için temizlemeden ÖNCE mevcut session modunu okuyoruz.
     const currentSession = await prisma.botAdminSession.findUnique({ where: { telegramId } })
     const wasInRandyConfig = currentSession?.mode?.startsWith('awaiting_randy_') ?? false
+    const wasInGiveawayConfig = currentSession?.mode?.startsWith('awaiting_giveaway_default_') ?? false
 
     await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null, draftTitle: null, draftMessage: null } }).catch(() => {})
 
@@ -536,6 +878,9 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     if (group) {
       if (wasInRandyConfig) {
         const { text, reply_markup } = await buildRandyConfigMessage(group)
+        await editTelegramMessage(chatId, messageId, text, reply_markup)
+      } else if (wasInGiveawayConfig) {
+        const { text, reply_markup } = await buildClassicGiveawayConfigMessage(group)
         await editTelegramMessage(chatId, messageId, text, reply_markup)
       } else {
         const { text, reply_markup } = await buildGroupMenuMessage(group)
@@ -1151,8 +1496,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('admgiveaway_new:')) {
-    const groupId = data.replace('admgiveaway_new:', '')
+  if (data.startsWith('admgiveawaycfg:')) {
+    const groupId = data.replace('admgiveawaycfg:', '')
     const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
     if (!isAdmin) {
       await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
@@ -1191,17 +1536,26 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
         inline_keyboard: [
           [{ text: '🏁 Bitir (kalanları hemen kazandır)', callback_data: `admgiveaway_end:${active.id}` }],
           [{ text: '🗑️ İptal Et', callback_data: `admgiveaway_cancel:${active.id}` }],
+          [{ text: '⬅️ Geri', callback_data: `admgrp:${groupId}` }],
         ],
       })
       await answerCallbackQuery(query.id)
       return true
     }
+
+    // ✅ Aktif çekiliş yoksa artık soru sorulmuyor - Randy'deki gibi kalıcı
+    // ayar ekranı açılır. Ayarlar bir kere yapıldıktan sonra "Çekilişi
+    // Başlat" tek tıkla, baştan hiçbir şey sormadan yeni çekiliş açar.
     await prisma.botAdminSession.upsert({
       where: { telegramId },
-      update: { mode: 'awaiting_giveaway_prize', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
-      create: { telegramId, mode: 'awaiting_giveaway_prize', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      update: { mode: null, groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
     })
-    await editTelegramMessage(chatId, messageId, '✍️ Ödül metnini yaz (örn: "50 puan").', cancelKeyboard(groupId))
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildClassicGiveawayConfigMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
     await answerCallbackQuery(query.id)
     return true
   }
@@ -1218,6 +1572,93 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
+  if (data.startsWith('giveawaymsg:')) {
+    const groupId = data.replace('giveawaymsg:', '')
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_giveaway_default_prize', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_giveaway_default_prize', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(chatId, messageId, '✍️ Ödül metnini yaz (örn: "50 puan" ya da "1 aylık Telegram Premium").', cancelKeyboard(groupId))
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('giveawaydur:')) {
+    const groupId = data.replace('giveawaydur:', '')
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_giveaway_default_duration', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_giveaway_default_duration', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(chatId, messageId, '⏱️ Çekiliş kaç saat sürsün? Sadece sayı yaz (örn: 24)', cancelKeyboard(groupId))
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('giveawaywin:')) {
+    const groupId = data.replace('giveawaywin:', '')
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_giveaway_default_winners', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_giveaway_default_winners', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(chatId, messageId, '🏆 Kaç kişi kazansın? Sadece sayı yaz (örn: 1)', cancelKeyboard(groupId))
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('giveawayptsmenu:')) {
+    const groupId = data.replace('giveawayptsmenu:', '')
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildClassicGiveawayPointsMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('giveawaypts_add:')) {
+    const groupId = data.replace('giveawaypts_add:', '')
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_giveaway_default_points', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_giveaway_default_points', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(chatId, messageId, '💰 Kaç puan verilsin? Sadece sayı yaz (örn: 500)', cancelKeyboard(groupId))
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('giveawaypts_clear:')) {
+    const groupId = data.replace('giveawaypts_clear:', '')
+    await saveClassicGiveawaySettings(groupId, { defaultPrizePoints: 0 })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildClassicGiveawayPointsMenuMessage(group)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id, '🗑️ Puan ödülü kapatıldı.')
+    return true
+  }
+
+  if (data.startsWith('giveawaystart:')) {
+    const groupId = data.replace('giveawaystart:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const active = await getActiveClassicGiveaway(groupId)
+    if (active) {
+      await answerCallbackQuery(query.id, '⚠️ Bu grupta zaten aktif bir çekiliş var.', true)
+      return true
+    }
+    await finalizeClassicGiveaway(telegramId, chatId, messageId, groupId)
+    await answerCallbackQuery(query.id)
+    return true
+  }
 
   if (data.startsWith('admrandy_new:')) {
     const groupId = data.replace('admrandy_new:', '')
@@ -1602,73 +2043,135 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
     return true
   }
 
-  if (session.mode === 'awaiting_giveaway_prize') {
+  if (session.mode === 'awaiting_ref_sponsor_check') {
     cleanupIncomingMessage()
-    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: 'awaiting_giveaway_duration', draftMessage: text } })
-    await updateMenu('⏱️ Çekiliş kaç saat sürsün? Sadece sayı yaz (örn: 24)', cancelKeyboard(session.groupId))
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null, draftDataJson: null } })
+
+    let sponsorId: string | null = null
+    try {
+      sponsorId = session.draftDataJson ? JSON.parse(session.draftDataJson).sponsorId : null
+    } catch {
+      sponsorId = null
+    }
+
+    if (!sponsorId) {
+      if (session.menuChatId && session.menuMessageId) {
+        await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), '⚠️ Bir şeyler ters gitti, /panel yazıp yeniden dene.')
+      }
+      return true
+    }
+
+    const { text: resultText, reply_markup } = await buildSponsorCheckResultMessage(sponsorId, text)
+    if (session.menuChatId && session.menuMessageId) {
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), resultText, reply_markup)
+    }
     return true
   }
 
-  if (session.mode === 'awaiting_giveaway_duration') {
+  if (session.mode === 'awaiting_ref_search') {
+    cleanupIncomingMessage()
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
+
+    const resolved = await resolveTelegramUserForRef(text)
+    const backKeyboard = { inline_keyboard: [[{ text: '⬅️ Geri', callback_data: 'admrefmenu' }]] }
+
+    if (!resolved || !resolved.siteUser) {
+      if (session.menuChatId && session.menuMessageId) {
+        await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), '❌ Bu kullanıcı bulunamadı ya da sitede kayıtlı değil.', backKeyboard)
+      }
+      return true
+    }
+
+    const infos = await prisma.userSponsorInfo.findMany({
+      where: { userId: resolved.siteUser.id },
+      include: { sponsor: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const displayName = resolved.siteUser.telegramUsername
+      ? `@${resolved.siteUser.telegramUsername}`
+      : (resolved.siteUser.siteUsername || resolved.siteUser.firstName || resolved.resolvedTelegramId)
+
+    const lines = infos.map((i: { sponsor: { name: string }; status: string; identifier: string }) =>
+      `• ${i.sponsor.name}: ${refStatusLabel(i.status)} <i>(${i.identifier})</i>`
+    )
+
+    const messageText = [
+      `🔗 <b>${displayName}</b> — Sponsor Bilgileri`,
+      '',
+      lines.length ? lines.join('\n') : 'Bu üyenin hiç sponsor kaydı yok.',
+    ].join('\n')
+
+    if (session.menuChatId && session.menuMessageId) {
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), messageText, backKeyboard)
+    }
+    return true
+  }
+
+  if (session.mode === 'awaiting_giveaway_default_prize') {
+    if (!session.groupId) return true
+    cleanupIncomingMessage()
+    await saveClassicGiveawaySettings(session.groupId, { defaultPrizeText: text })
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
+    if (group && session.menuChatId && session.menuMessageId) {
+      const { text: menuText, reply_markup } = await buildClassicGiveawayConfigMessage(group)
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
+    }
+    return true
+  }
+
+  if (session.mode === 'awaiting_giveaway_default_duration') {
     const hours = parseInt(text, 10)
     if (!hours || hours < 1) {
       await sendTelegramMessage(message.chat.id, '⚠️ Geçerli bir saat sayısı yaz (örn: 24)')
       return true
     }
-    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: 'awaiting_giveaway_winners', draftTitle: String(hours) } })
+    if (!session.groupId) return true
     cleanupIncomingMessage()
-    await updateMenu('🏆 Kaç kişi kazansın? Sadece sayı yaz (örn: 1)', cancelKeyboard(session.groupId))
+    await saveClassicGiveawaySettings(session.groupId, { defaultDurationHours: hours })
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
+    if (group && session.menuChatId && session.menuMessageId) {
+      const { text: menuText, reply_markup } = await buildClassicGiveawayConfigMessage(group)
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
+    }
     return true
   }
 
-  if (session.mode === 'awaiting_giveaway_winners') {
+  if (session.mode === 'awaiting_giveaway_default_winners') {
     const winnerCount = parseInt(text, 10)
     if (!winnerCount || winnerCount < 1) {
       await sendTelegramMessage(message.chat.id, '⚠️ Geçerli bir sayı yaz (örn: 1)')
       return true
     }
-    if (!session.groupId || !session.draftMessage || !session.draftTitle) {
-      await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
-      await sendTelegramMessage(message.chat.id, '⚠️ Bir şeyler ters gitti, /panel yazıp yeniden dene.')
-      return true
-    }
-
-    const result = await createClassicGiveaway({
-      groupId: session.groupId,
-      creatorTelegramId: telegramId,
-      prizeText: session.draftMessage,
-      durationHours: parseInt(session.draftTitle, 10),
-      winnerCount,
-    })
-
+    if (!session.groupId) return true
     cleanupIncomingMessage()
-    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null, draftMessage: null, draftTitle: null } })
-
-    // ✅ İşlem bitince (başarılı ya da başarısız) otomatik olarak bir önceki
-    // grup menüsüne dön - yeni bir "tamam" mesajı biriktirmek yerine.
+    await saveClassicGiveawaySettings(session.groupId, { defaultWinnerCount: winnerCount })
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
-    const backToMenu = async (statusLine: string) => {
-      if (group) {
-        const { text: menuText, reply_markup } = await buildGroupMenuMessage(group)
-        await updateMenu(`${statusLine}\n\n${menuText}`, reply_markup)
-      } else {
-        await updateMenu(statusLine)
-      }
+    if (group && session.menuChatId && session.menuMessageId) {
+      const { text: menuText, reply_markup } = await buildClassicGiveawayConfigMessage(group)
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
     }
+    return true
+  }
 
-    if (!result.ok) {
-      await backToMenu(`⚠️ Çekiliş başlatılamadı: ${result.error}`)
+  if (session.mode === 'awaiting_giveaway_default_points') {
+    const points = parseInt(text.replace(/\D/g, ''), 10)
+    if (!points || points < 1) {
+      await sendTelegramMessage(message.chat.id, '⚠️ Geçerli bir puan miktarı yaz (örn: 500)')
       return true
     }
-
-    const announcement = await sendTelegramMessage(
-      session.groupId,
-      `🎁 <b>Klasik Çekiliş Başladı!</b>\n\n🏆 Ödül: ${result.giveaway.prizeText}\n👥 Kazanan sayısı: ${winnerCount}\n⏱️ Süre: ${session.draftTitle} saat\n\nBelirlenen rastgele anlarda mesaj atan ilk kişi(ler) ödülü kazanır. Şansını dene, mesaj atmaya devam et!`
-    )
-    if (announcement?.message_id) {
-      await pinChatMessage(session.groupId, announcement.message_id).catch(() => {})
+    if (!session.groupId) return true
+    cleanupIncomingMessage()
+    await saveClassicGiveawaySettings(session.groupId, { defaultPrizePoints: points })
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
+    if (group && session.menuChatId && session.menuMessageId) {
+      const { text: menuText, reply_markup } = await buildClassicGiveawayPointsMenuMessage(group)
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
     }
-    await backToMenu('✅ Klasik çekiliş gruba duyuruldu!')
     return true
   }
 

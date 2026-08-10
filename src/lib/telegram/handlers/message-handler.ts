@@ -197,6 +197,19 @@ async function checkAdminRandyEnd(message: any, chatType: string, userId: string
     return false
   }
 
+  // 🛡️ FIX: Bir mesaj sabitlendiğinde (pinChatMessage) Telegram, grup içine
+  // "X bir mesaj sabitledi" diye bir SERVİS mesajı düşürür. Bu servis mesajı
+  // API'de `pinned_message` alanıyla birlikte gelir ve garip biçimde
+  // `reply_to_message` alanı da sabitlenen mesaja (yani Randy mesajına)
+  // eşit olabiliyor. Randy'yi biz kendimiz (bot) pinliyoruz, dolayısıyla bu
+  // servis mesajının `from` alanı BOT'un kendisi oluyor - bot da grupta admin
+  // olduğu için "admin reply yaptı, Randy'yi bitir" sanılıp Randy başlar
+  // başlamaz otomatik bitiyordu. Bu servis mesajlarını burada eleyip gerçek
+  // bir admin reply'i değilse akışa hiç girmiyoruz.
+  if (message.pinned_message) {
+    return false
+  }
+
   const repliedMessageId = message.reply_to_message.message_id
   const chatId = message.chat.id
 
@@ -447,9 +460,14 @@ export async function handleMessage(message: any) {
         )
         if (awarded) {
           const winnerName = message.from?.username ? `@${message.from.username}` : (message.from?.first_name || 'Kullanıcı')
+          const pointsLine = awarded.prizePoints > 0
+            ? (awarded.pointsAwarded > 0
+                ? `\n💰 +${awarded.pointsAwarded} puan hesabına eklendi.`
+                : `\n💰 ${awarded.prizePoints} puanlık ödülü almak için siteye üye olman gerekiyor.`)
+            : ''
           const sent = await sendTelegramMessage(
             chatId,
-            `🎉 Tebrikler ${winnerName}!\n\n🎁 Ödül: ${awarded.prizeText}`,
+            `🎉 Tebrikler ${winnerName}!\n\n🎁 Ödül: ${awarded.prizeText}${pointsLine}`,
             { replyToMessageId: message.message_id }
           )
           if (awarded.pinWinnerMessage && sent?.message_id) {

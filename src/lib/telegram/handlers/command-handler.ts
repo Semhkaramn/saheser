@@ -9,6 +9,8 @@ import { runTagging, stopTaggingRun } from '../services/tagging-service'
 import { checkTelegramAdmin, sendTelegramMessage, deleteTelegramMessage } from '../core'
 import { prisma } from '@/lib/prisma'
 import { ISTATISTIK, formatMention } from '../taslaklar'
+import { invalidateCache } from '@/lib/enhanced-cache'
+import { logActivity } from '@/lib/services/activity-log-service'
 
 /**
  * Komut handler (/ ile başlayan mesajlar)
@@ -164,6 +166,14 @@ export async function handleCommand(message: any) {
       return NextResponse.json({ ok: true })
     }
 
+    // /ekle <miktar> (reply ile) veya /ekle <@kullanici|id> <miktar> - puan ekler
+    case '/ekle':
+      return await handlePointsAdjustCommand(message, text, 'add')
+
+    // /sil <miktar> (reply ile) veya /sil <@kullanici|id> <miktar> - puan siler
+    case '/sil':
+      return await handlePointsAdjustCommand(message, text, 'remove')
+
     // /dur - Çalışan /etiket veya /naber işlemini durdurur
     case '/dur': {
       if (message.chat.type !== 'group' && message.chat.type !== 'supergroup') {
@@ -278,5 +288,125 @@ async function handleInfoCommand(message: any) {
   text2 += `\n\n<b>🎲 Klasik Çekiliş</b>\n🏆 Kazandığı: ${classicWinCount}`
 
   await sendTelegramMessage(chatId, text2)
+  return NextResponse.json({ ok: true })
+}
+
+/**
+ * /ekle ve /sil komutları - SADECE grup adminleri kullanabilir. Bir üyeye
+ * puan eklemek/silmek için üç kullanım şekli desteklenir:
+ * 1) Üyenin mesajına REPLY yapıp "/ekle 1000" ya da "/sil 1000" yazmak
+ * 2) "/ekle @kullaniciadi 1000" (Telegram kullanıcı adı, @ olsun olmasın)
+ * 3) "/ekle 123456789 1000" (Telegram ID)
+ */
+async function handlePointsAdjustCommand(message: any, text: string, mode: 'add' | 'remove') {
+  const chatId = message.chat.id
+  const chatType = message.chat.type
+
+  if (chatType !== 'group' && chatType !== 'supergroup') {
+    return NextResponse.json({ ok: true })
+  }
+
+  const isAdmin = await checkTelegramAdmin(chatId, message.from.id)
+  if (!isAdmin) return NextResponse.json({ ok: true })
+
+  const args = text.split(/\s+/).slice(1).filter(Boolean)
+  const usage = mode === 'add'
+    ? '📝 Kullanım:\n• Birine reply yapıp <code>/ekle 1000</code>\n• <code>/ekle @kullaniciadi 1000</code>\n• <code>/ekle 123456789 1000</code>'
+    : '📝 Kullanım:\n• Birine reply yapıp <code>/sil 1000</code>\n• <code>/sil @kullaniciadi 1000</code>\n• <code>/sil 123456789 1000</code>'
+
+  let targetTelegramId: string | null = null
+  let targetUsername: string | null = null
+  let targetFirstName: string | null = null
+  let amountStr: string | null = null
+
+  if (message.reply_to_message?.from) {
+    targetTelegramId = String(message.reply_to_message.from.id)
+    targetUsername = message.reply_to_message.from.username || null
+    targetFirstName = message.reply_to_message.from.first_name || null
+    amountStr = args[0] || null
+  } else if (args.length >= 2) {
+    const rawTarget = args[0].replace(/^@/, '').trim()
+    if (/^\d+$/.test(rawTarget)) {
+      targetTelegramId = rawTarget
+    } else {
+      targetUsername = rawTarget
+    }
+    amountStr = args[1] || null
+  }
+
+  if (!amountStr || (!targetTelegramId && !targetUsername)) {
+    await sendTelegramMessage(chatId, usage)
+    return NextResponse.json({ ok: true })
+  }
+
+  const amount = parseInt(amountStr.replace(/\D/g, ''), 10)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    await sendTelegramMessage(chatId, usage)
+    return NextResponse.json({ ok: true })
+  }
+
+  // Hedef üyeyi bul (önce TelegramGroupUser üzerinden gerçek telegramId'ye ulaş)
+  const telegramGroupUser = await prisma.telegramGroupUser.findFirst({
+    where: targetTelegramId ? { telegramId: targetTelegramId } : { username: { equals: targetUsername!, mode: 'insensitive' } },
+  })
+
+  const resolvedTelegramId = telegramGroupUser?.telegramId || targetTelegramId
+  if (!resolvedTelegramId) {
+    await sendTelegramMessage(chatId, '❌ Bu kullanıcı için hiç kayıt bulunamadı (hiç mesaj atmamış olabilir).')
+    return NextResponse.json({ ok: true })
+  }
+
+  const siteUser = await prisma.user.findUnique({ where: { telegramId: resolvedTelegramId } })
+  if (!siteUser) {
+    await sendTelegramMessage(chatId, '❌ Bu kullanıcı sitede kayıtlı değil, puan eklenemez/silinemez.')
+    return NextResponse.json({ ok: true })
+  }
+
+  const firstName = targetFirstName || telegramGroupUser?.firstName || siteUser.firstName || 'Kullanıcı'
+  const displayName = targetUsername || telegramGroupUser?.username || siteUser.telegramUsername
+    ? `@${targetUsername || telegramGroupUser?.username || siteUser.telegramUsername}`
+    : firstName
+
+  const balanceBefore = siteUser.points
+  const delta = mode === 'add' ? amount : -Math.min(amount, balanceBefore)
+  const balanceAfter = balanceBefore + delta
+
+  const updatedUser = await prisma.user.update({
+    where: { id: siteUser.id },
+    data: { points: { increment: delta } },
+  })
+
+  await prisma.pointHistory.create({
+    data: {
+      userId: siteUser.id,
+      amount: delta,
+      type: mode === 'add' ? 'admin_add' : 'admin_remove',
+      description: mode === 'add'
+        ? `Grup admini tarafından ${delta} puan eklendi (Telegram komutu)`
+        : `Grup admini tarafından ${Math.abs(delta)} puan silindi (Telegram komutu)`,
+      adminUsername: message.from.username ? `@${message.from.username}` : (message.from.first_name || 'Admin'),
+      balanceBefore,
+      balanceAfter,
+    },
+  })
+
+  await logActivity({
+    userId: siteUser.id,
+    actionType: mode === 'add' ? 'admin_points_add' : 'admin_points_remove',
+    actionTitle: mode === 'add' ? `Admin ${delta} puan ekledi` : `Admin ${Math.abs(delta)} puan sildi`,
+    actionDescription: `Telegram grup komutu ile (${message.from.username ? `@${message.from.username}` : message.from.first_name || 'Admin'})`,
+    oldValue: String(balanceBefore),
+    newValue: String(balanceAfter),
+    metadata: { chatId: String(chatId), viaCommand: mode === 'add' ? '/ekle' : '/sil' },
+  }).catch(() => {})
+
+  invalidateCache.leaderboard()
+
+  const emoji = mode === 'add' ? '✅' : '🗑️'
+  const verb = mode === 'add' ? 'eklendi' : 'silindi'
+  await sendTelegramMessage(
+    chatId,
+    `${emoji} ${displayName} adlı üyeden/üyeye <b>${Math.abs(delta)}</b> puan ${verb}.\n💰 Yeni bakiye: <b>${updatedUser.points}</b> puan`
+  )
   return NextResponse.json({ ok: true })
 }

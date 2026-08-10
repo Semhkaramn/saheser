@@ -30,6 +30,7 @@ model BotAdminSession {
   id                String    @id @default(cuid())
   telegramId        String    @unique // Panelle konuşan adminin telegram ID'si
   groupId           String?   // Üzerinde işlem yapılan grup ID'si
+  lastGroupId       String?   // 🔄 En son seçilen grup - /panel her açıldığında baştan grup seçtirmemek için hatırlanır
   mode              String?   // null | awaiting_broadcast | awaiting_randy_message | awaiting_randy_number
   draftTitle        String?   @db.Text // Randy taslak mesajı (winnerCount sorulmadan önce tutulur)
   draftMessage      String?   @db.Text
@@ -49,6 +50,8 @@ model ClassicGiveawaySettings {
   groupId               String   @unique
   defaultDurationHours  Int      @default(24)
   defaultWinnerCount    Int      @default(1)
+  defaultPrizeText      String?  @db.Text // Randy'deki gibi sabit ayar: her seferinde yeniden yazmaya gerek kalmaz
+  defaultPrizePoints    Int      @default(0) // Varsayılan otomatik puan ödülü (0 = kapalı)
   maxWinsPerUser        Int?
   pinAnnouncement       Boolean  @default(true)
   pinWinnerMessage      Boolean  @default(true)
@@ -60,6 +63,7 @@ model ClassicGiveaway {
   groupId                String
   creatorTelegramId      String
   prizeText              String   @db.Text
+  prizePoints            Int      @default(0) // Randy'deki gibi: kazanana otomatik eklenen puan (0 = kapalı)
   winnerCount            Int
   maxWinsPerUser         Int?
   pinAnnouncement        Boolean  @default(true)

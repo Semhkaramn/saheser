@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { isBotSystemEnabled } from '../bot-system-check'
+import { logActivity } from '@/lib/services/activity-log-service'
+import { invalidateCache } from '@/lib/enhanced-cache'
 
 // randy-web'deki giveaway servisinden uyarlandı.
 // Mantık: Başlangıç-bitiş arasında rastgele "kazanma anları" üretilir.
@@ -13,7 +15,7 @@ export async function getClassicGiveawaySettings(groupId: string) {
 
 export async function saveClassicGiveawaySettings(
   groupId: string,
-  data: Partial<{ defaultDurationHours: number; defaultWinnerCount: number; maxWinsPerUser: number | null }>
+  data: Partial<{ defaultDurationHours: number; defaultWinnerCount: number; defaultPrizeText: string | null; defaultPrizePoints: number; maxWinsPerUser: number | null }>
 ) {
   return prisma.classicGiveawaySettings.upsert({
     where: { groupId },
@@ -74,6 +76,7 @@ export async function createClassicGiveaway(input: {
   groupId: string
   creatorTelegramId: string
   prizeText: string
+  prizePoints?: number
   durationHours: number
   winnerCount: number
   maxWinsPerUser?: number
@@ -91,6 +94,7 @@ export async function createClassicGiveaway(input: {
       groupId: input.groupId,
       creatorTelegramId: input.creatorTelegramId,
       prizeText: input.prizeText,
+      prizePoints: input.prizePoints ?? 0,
       winnerCount: input.winnerCount,
       maxWinsPerUser: input.maxWinsPerUser ?? null,
       status: 'active',
@@ -127,6 +131,9 @@ export interface ClassicAwardResult {
   giveawayId: string
   prizeText: string
   pinWinnerMessage: boolean
+  prizePoints: number
+  pointsAwarded: number
+  hasLinkedUser: boolean
 }
 
 /**
@@ -186,7 +193,49 @@ export async function checkAndAwardClassicWinner(
 
   if (!claimed) return null
 
-  return { giveawayId: giveaway.id, prizeText: giveaway.prizeText, pinWinnerMessage: giveaway.pinWinnerMessage }
+  // 🎁 Randy'deki gibi: çekilişin puan ödülü varsa ve kazananın site hesabı
+  // bağlıysa (telegramId ile eşleşen bir User kaydı varsa) puan otomatik
+  // eklenir. Site hesabı yoksa puan verilemez (hesap yok, biriktirilecek
+  // yer yok) - bu durum sadece bilgi amaçlı işaretlenir.
+  let pointsAwarded = 0
+  let hasLinkedUser = false
+  if (giveaway.prizePoints > 0) {
+    const siteUser = await prisma.user.findUnique({ where: { telegramId } })
+    if (siteUser) {
+      hasLinkedUser = true
+      pointsAwarded = giveaway.prizePoints
+      await prisma.user.update({ where: { id: siteUser.id }, data: { points: { increment: giveaway.prizePoints } } })
+      await prisma.pointHistory.create({
+        data: {
+          userId: siteUser.id,
+          amount: giveaway.prizePoints,
+          type: 'classic_giveaway_win',
+          description: `Klasik çekiliş kazandı: ${giveaway.prizeText}`,
+          relatedId: giveaway.id,
+        },
+      })
+      await logActivity({
+        userId: siteUser.id,
+        actionType: 'randy_win' as any, // ayrı bir tür eklenmedi - Randy ile aynı kategori altında loglanıyor
+        actionTitle: `Klasik çekiliş kazandı: ${giveaway.prizeText}`,
+        actionDescription: `+${giveaway.prizePoints} puan kazanıldı`,
+        newValue: String(giveaway.prizePoints),
+        relatedId: giveaway.id,
+        relatedType: 'classic_giveaway',
+        metadata: { prizeText: giveaway.prizeText, pointsWon: giveaway.prizePoints },
+      }).catch(() => {})
+      invalidateCache.leaderboard()
+    }
+  }
+
+  return {
+    giveawayId: giveaway.id,
+    prizeText: giveaway.prizeText,
+    pinWinnerMessage: giveaway.pinWinnerMessage,
+    prizePoints: giveaway.prizePoints,
+    pointsAwarded,
+    hasLinkedUser,
+  }
 }
 
 export async function endClassicGiveaway(id: string) {
