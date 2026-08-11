@@ -90,22 +90,17 @@ export async function handleCallbackQuery(query: any) {
     return NextResponse.json({ ok: true })
   }
 
-  // Bot admin paneli callback'leri (grup listesi, toplu mesaj, randy, etiketleme, çapraz ban, klasik çekiliş, GPT)
+  // Bot admin paneli callback'leri (grup listesi, toplu mesaj, randy, etiketleme, çapraz ban, klasik çekiliş, GPT, sponsor/ref kontrol)
   // ✅ FIX: Eskiden burada her yeni buton eklendiğinde elle güncellenmesi gereken
   // kırılgan bir "izin listesi" vardı - yeni eklenen butonlardan çoğu (Randy
-  // Ayarları, İptal, Etiketleme Hariç Listesi vb.) bu listeye eklenmediği için
-  // hiç çalışmıyordu (butona basılınca hiçbir şey olmuyordu). Artık bot admin
-  // panelinin kullandığı TÜM önekler tek bir genel desenle yakalanıyor - yeni
-  // bir buton eklendiğinde burayı güncellemeye gerek yok.
-  if (
-    query.data === 'admgroups' ||
-    query.data === 'admrefmenu' ||
-    query.data === 'admrefsearch' ||
-    query.data === 'noop' ||
-    /^(adm[a-z_]*|randy[a-z_]*|rdefwc[a-z_]*):/.test(query.data) ||
-    query.data === 'randywcadd' ||
-    query.data === 'randywcdone'
-  ) {
+  // Ayarları, İptal, Etiketleme Hariç Listesi, Sponsor/Ref Kontrol, Klasik
+  // Çekiliş ayar butonları vb.) bu listeye eklenmediği için hiç çalışmıyordu
+  // (butona basılınca hiçbir şey olmuyordu). "randy_join_" zaten yukarıda
+  // erken return ile ele alındığı için burada TÜM "adm"/"randy"/"rdefwc"/
+  // "noop" ile başlayan callback'ler (":" olsun olmasın) tek bir genel
+  // desenle yakalanıyor - yeni bir buton eklendiğinde bu dosyayı güncellemeye
+  // hiç gerek yok.
+  if (/^(adm|randy|rdefwc|noop)/.test(query.data)) {
     const handled = await handleAdminPanelCallback(query)
     if (handled) return NextResponse.json({ ok: true })
   }

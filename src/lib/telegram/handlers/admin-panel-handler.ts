@@ -146,7 +146,6 @@ async function buildSponsorCheckResultMessage(sponsorId: string, rawInput: strin
   for (const token of tokens) {
     const info = await prisma.userSponsorInfo.findFirst({
       where: { sponsorId, identifier: { equals: token, mode: 'insensitive' } },
-      include: { user: { select: { telegramUsername: true, firstName: true, siteUsername: true } } },
     })
 
     if (!info) {
@@ -154,11 +153,9 @@ async function buildSponsorCheckResultMessage(sponsorId: string, rawInput: strin
       continue
     }
 
-    const displayName = info.user.telegramUsername
-      ? `@${info.user.telegramUsername}`
-      : (info.user.siteUsername || info.user.firstName || token)
-
-    lines.push(`• <b>${token}</b> (${displayName}) — ${refStatusLabel(info.status)}`)
+    // ✅ Site kullanıcı adı/hesabı GÖSTERİLMİYOR - sadece o sponsor için
+    // girilen bilgi (identifier) ve onay durumu gösteriliyor.
+    lines.push(`• <b>${info.identifier}</b> — ${refStatusLabel(info.status)}`)
   }
 
   return {
@@ -197,27 +194,41 @@ async function buildGroupMenuMessage(group: { groupId: string; title: string | n
     // (broadcast, etiketleme, aktiflik yarışması, haftalık ödül, klasik
     // çekiliş, GPT sohbet) anlamsız - randy-web'de de kanal menüsü sadece
     // Randy + Çapraz Ban içerir.
-    rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
-    rows.push([{ text: '🎲 Randy Başlat (bu kanalda)', callback_data: `admrandy_new:${group.groupId}` }])
+    rows.push([
+      { text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` },
+      { text: '🎲 Randy Başlat', callback_data: `admrandy_new:${group.groupId}` },
+    ])
     rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` }])
   } else {
-    rows.push([{ text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` }])
-    rows.push([{
-      text: activeGiveaway ? '📊 Klasik Çekiliş: Devam Ediyor (Durum)' : '🎁 Klasik Çekiliş Ayarları',
-      callback_data: `admgiveawaycfg:${group.groupId}`,
-    }])
-    rows.push([{ text: contestRunning ? '📈 Aktiflik Yarışması: 🟢 Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` }])
-    rows.push([{ text: `🏆 Haftalık Ödüller: ${weeklyOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admweeklymenu:${group.groupId}` }])
-    rows.push([{ text: '🏷️ Üyeleri Etiketle', callback_data: `admtag_new:${group.groupId}` }])
-    rows.push([{ text: `⚙️ Otomatik Etiketleme: ${autoTagOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admautotagmenu:${group.groupId}` }])
-    rows.push([{ text: '🚫 Etiketleme Hariç Listesi', callback_data: `admtagexcl:${group.groupId}` }])
-    rows.push([{ text: `🤖 GPT Sohbet: ${gptOn ? `🟢 Açık (“${gptSettings?.triggerWord || 'harley'}”)` : '🔴 Kapalı'}`, callback_data: `admgptmenu:${group.groupId}` }])
-    rows.push([{ text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` }])
-    rows.push([{ text: '📢 Üyelere Mesaj Gönder', callback_data: `admbroadcast:${group.groupId}` }])
+    rows.push([
+      { text: '🎲 Randy Ayarları', callback_data: `admrandycfg:${group.groupId}` },
+      {
+        text: activeGiveaway ? '📊 Çekiliş: Devam Ediyor' : '🎁 Klasik Çekiliş',
+        callback_data: `admgiveawaycfg:${group.groupId}`,
+      },
+    ])
+    rows.push([
+      { text: contestRunning ? '📈 Aktiflik: 🟢 Devam Ediyor' : '📈 Aktiflik Yarışması', callback_data: `admactivitymenu:${group.groupId}` },
+      { text: `🏆 Haftalık: ${weeklyOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admweeklymenu:${group.groupId}` },
+    ])
+    rows.push([
+      { text: '🏷️ Üyeleri Etiketle', callback_data: `admtag_new:${group.groupId}` },
+      { text: `⚙️ Oto-Etiket: ${autoTagOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admautotagmenu:${group.groupId}` },
+    ])
+    rows.push([
+      { text: '🚫 Etiket Hariç Listesi', callback_data: `admtagexcl:${group.groupId}` },
+      { text: `🤖 GPT: ${gptOn ? `🟢 Açık` : '🔴 Kapalı'}`, callback_data: `admgptmenu:${group.groupId}` },
+    ])
+    rows.push([
+      { text: `🚫 Çapraz Ban: ${crossBanOn ? '🟢 Açık' : '🔴 Kapalı'}`, callback_data: `admcrossban:${group.groupId}` },
+      { text: '📢 Mesaj Gönder', callback_data: `admbroadcast:${group.groupId}` },
+    ])
   }
 
-  rows.push([{ text: '🔗 Sponsor / Ref Kontrol', callback_data: 'admrefmenu' }])
-  rows.push([{ text: '🔄 Grup Değiştir', callback_data: 'admgroups' }])
+  rows.push([
+    { text: '🔗 Sponsor / Ref', callback_data: 'admrefmenu' },
+    { text: '🔄 Grup Değiştir', callback_data: 'admgroups' },
+  ])
 
   return {
     text: `⚙️ <b>${group.title || group.groupId}</b>${isChannel ? ' (kanal)' : ''}\n\nNe yapmak istersin?`,
@@ -260,8 +271,10 @@ async function buildGptMenuMessage(group: { groupId: string; title: string | nul
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
-        [{ text: enabled ? '❌ Kapat' : '✅ Aç', callback_data: `admgpt:${group.groupId}` }],
-        [{ text: '✍️ Tetikleyici Kelimeyi Değiştir', callback_data: `admgptword:${group.groupId}` }],
+        [
+          { text: enabled ? '❌ Kapat' : '✅ Aç', callback_data: `admgpt:${group.groupId}` },
+          { text: '✍️ Kelimeyi Değiştir', callback_data: `admgptword:${group.groupId}` },
+        ],
         [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
       ],
     },
@@ -339,10 +352,12 @@ async function buildWeeklyMenuMessage(group: { groupId: string; title: string | 
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
-        [{ text: enabled ? '❌ Kapat' : '✅ Aç', callback_data: `admweekly:${group.groupId}` }],
+        [
+          { text: enabled ? '❌ Kapat' : '✅ Aç', callback_data: `admweekly:${group.groupId}` },
+          { text: `🔢 Kaç Kişi (${topCount})`, callback_data: `admweeklytop:${group.groupId}` },
+        ],
         ...rewardRows,
-        [{ text: '🔢 Kaç Kişiye Ödül Verilecek', callback_data: `admweeklytop:${group.groupId}` }],
-        [{ text: autoPin ? '📌 Otomatik Sabitleme: Kapat' : '📌 Otomatik Sabitleme: Aç', callback_data: `admweeklypin:${group.groupId}` }],
+        [{ text: autoPin ? '📌 Oto-Sabitle: Kapat' : '📌 Oto-Sabitle: Aç', callback_data: `admweeklypin:${group.groupId}` }],
         [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
       ],
     },
@@ -382,12 +397,18 @@ async function buildRandyConfigMessage(group: { groupId: string; title: string |
     ].filter(Boolean).join('\n'),
     reply_markup: {
       inline_keyboard: [
-        [{ text: '✍️ Randy Mesajını Ayarla', callback_data: `randymsg:${group.groupId}` }],
-        [{ text: `📋 Mesaj Şartı (${reqSummary})`, callback_data: `randyreqmenu:${group.groupId}` }],
-        [{ text: `📢 Kanal Şartı (${channels.length})`, callback_data: `randywc:${group.groupId}` }],
-        [{ text: `${websiteRequired ? '☑️' : '⬜'} Website Zorunluluğu`, callback_data: `randywebreq:${group.groupId}` }],
-        [{ text: '🔢 Kazanan Sayısını Ayarla', callback_data: `randywinner:${group.groupId}` }],
-        [{ text: `💰 Puan Ödülü (${points ? `${points} puan` : 'kapalı'})`, callback_data: `randyptsmenu:${group.groupId}` }],
+        [
+          { text: '✍️ Randy Mesajı', callback_data: `randymsg:${group.groupId}` },
+          { text: '🔢 Kazanan Sayısı', callback_data: `randywinner:${group.groupId}` },
+        ],
+        [
+          { text: `📋 Mesaj Şartı (${reqSummary})`, callback_data: `randyreqmenu:${group.groupId}` },
+          { text: `📢 Kanal Şartı (${channels.length})`, callback_data: `randywc:${group.groupId}` },
+        ],
+        [
+          { text: `${websiteRequired ? '☑️' : '⬜'} Website Zorunlu`, callback_data: `randywebreq:${group.groupId}` },
+          { text: `💰 Puan (${points ? `${points}` : 'kapalı'})`, callback_data: `randyptsmenu:${group.groupId}` },
+        ],
         [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
       ],
     },
@@ -491,8 +512,10 @@ async function buildRandyPointsMenuMessage(group: { groupId: string; title: stri
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
-        [{ text: '➕ Puan Ekle / Değiştir', callback_data: `randypts_add:${group.groupId}` }],
-        [{ text: '🗑️ Puanı Kaldır (Kapat)', callback_data: `randypts_clear:${group.groupId}` }],
+        [
+          { text: '➕ Ekle / Değiştir', callback_data: `randypts_add:${group.groupId}` },
+          { text: '🗑️ Kaldır', callback_data: `randypts_clear:${group.groupId}` },
+        ],
         [{ text: `${pointsOnly ? '☑️' : '⬜'} Sadece Puan (fiziksel ödül yok)`, callback_data: `randyptsonly:${group.groupId}` }],
         [{ text: '⬅️ Geri', callback_data: `admrandycfg:${group.groupId}` }],
       ],
@@ -525,11 +548,15 @@ async function buildClassicGiveawayConfigMessage(group: { groupId: string; title
     ].filter(Boolean).join('\n'),
     reply_markup: {
       inline_keyboard: [
-        [{ text: '✍️ Ödül Metnini Ayarla', callback_data: `giveawaymsg:${group.groupId}` }],
-        [{ text: `⏱️ Süre (${hours} saat)`, callback_data: `giveawaydur:${group.groupId}` }],
-        [{ text: `🔢 Kazanan Sayısı (${winnerCount})`, callback_data: `giveawaywin:${group.groupId}` }],
-        [{ text: `💰 Puan Ödülü (${points ? `${points} puan` : 'kapalı'})`, callback_data: `giveawayptsmenu:${group.groupId}` }],
-        [{ text: '🎁 Çekilişi Başlat', callback_data: `giveawaystart:${group.groupId}` }],
+        [
+          { text: '✍️ Ödül Metni', callback_data: `admgiveawaymsg:${group.groupId}` },
+          { text: `⏱️ Süre (${hours}sa)`, callback_data: `admgiveawaydur:${group.groupId}` },
+        ],
+        [
+          { text: `🔢 Kazanan (${winnerCount})`, callback_data: `admgiveawaywin:${group.groupId}` },
+          { text: `💰 Puan (${points ? `${points}` : 'kapalı'})`, callback_data: `admgiveawayptsmenu:${group.groupId}` },
+        ],
+        [{ text: '🎁 Çekilişi Başlat', callback_data: `admgiveawaystart:${group.groupId}` }],
         [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
       ],
     },
@@ -550,8 +577,10 @@ async function buildClassicGiveawayPointsMenuMessage(group: { groupId: string; t
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
-        [{ text: '➕ Puan Ekle / Değiştir', callback_data: `giveawaypts_add:${group.groupId}` }],
-        [{ text: '🗑️ Puanı Kaldır (Kapat)', callback_data: `giveawaypts_clear:${group.groupId}` }],
+        [
+          { text: '➕ Ekle / Değiştir', callback_data: `admgiveawaypts_add:${group.groupId}` },
+          { text: '🗑️ Kaldır', callback_data: `admgiveawaypts_clear:${group.groupId}` },
+        ],
         [{ text: '⬅️ Geri', callback_data: `admgiveawaycfg:${group.groupId}` }],
       ],
     },
@@ -559,8 +588,16 @@ async function buildClassicGiveawayPointsMenuMessage(group: { groupId: string; t
 }
 
 
-// Kanal şartı alt menüsü - bilinen tüm kanallar tikli (☑️/⬜) liste olarak
-// gösterilir, tıklayınca açılıp kapanır.
+// Kanal şartı alt menüsü - hem elle eklenmiş (Çapraz Ban) kanalları HEM DE
+// botun zaten admin olarak bağlı olduğu tüm kanalları (TelegramGroup,
+// chatType='channel') birleştirip tikli (☑️/⬜) liste olarak gösterir.
+// Önceden sadece elle eklenen kanallar görünüyordu - bot bir kanala admin
+// eklendiğinde otomatik burada da çıkmıyordu, admin "+ Yeni Kanal Ekle" ile
+// elle eklemek zorunda kalıyordu. Artık botun bağlı olduğu her kanal
+// otomatik listede.
+// Kanal şartı alt menüsü - elle eklenmiş (Çapraz Ban listesi) kanallar
+// tikli (☑️/⬜) liste olarak gösterilir, tıklayınca açılıp kapanır. Listede
+// olmayan bir kanal "➕ Elle Ekle" ile eklenir.
 async function buildRandyChannelListMessage(group: { groupId: string; title: string | null }) {
   const required = await listRandyGroupDefaultChannels(group.groupId)
   const requiredIds = new Set(required.map((c) => c.channelId))
@@ -1555,8 +1592,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawaymsg:')) {
-    const groupId = data.replace('giveawaymsg:', '')
+  if (data.startsWith('admgiveawaymsg:')) {
+    const groupId = data.replace('admgiveawaymsg:', '')
     await prisma.botAdminSession.upsert({
       where: { telegramId },
       update: { mode: 'awaiting_giveaway_default_prize', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
@@ -1567,8 +1604,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawaydur:')) {
-    const groupId = data.replace('giveawaydur:', '')
+  if (data.startsWith('admgiveawaydur:')) {
+    const groupId = data.replace('admgiveawaydur:', '')
     await prisma.botAdminSession.upsert({
       where: { telegramId },
       update: { mode: 'awaiting_giveaway_default_duration', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
@@ -1579,8 +1616,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawaywin:')) {
-    const groupId = data.replace('giveawaywin:', '')
+  if (data.startsWith('admgiveawaywin:')) {
+    const groupId = data.replace('admgiveawaywin:', '')
     await prisma.botAdminSession.upsert({
       where: { telegramId },
       update: { mode: 'awaiting_giveaway_default_winners', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
@@ -1591,8 +1628,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawayptsmenu:')) {
-    const groupId = data.replace('giveawayptsmenu:', '')
+  if (data.startsWith('admgiveawayptsmenu:')) {
+    const groupId = data.replace('admgiveawayptsmenu:', '')
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
       const { text, reply_markup } = await buildClassicGiveawayPointsMenuMessage(group)
@@ -1602,8 +1639,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawaypts_add:')) {
-    const groupId = data.replace('giveawaypts_add:', '')
+  if (data.startsWith('admgiveawaypts_add:')) {
+    const groupId = data.replace('admgiveawaypts_add:', '')
     await prisma.botAdminSession.upsert({
       where: { telegramId },
       update: { mode: 'awaiting_giveaway_default_points', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
@@ -1614,8 +1651,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawaypts_clear:')) {
-    const groupId = data.replace('giveawaypts_clear:', '')
+  if (data.startsWith('admgiveawaypts_clear:')) {
+    const groupId = data.replace('admgiveawaypts_clear:', '')
     await saveClassicGiveawaySettings(groupId, { defaultPrizePoints: 0 })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
@@ -1626,8 +1663,8 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('giveawaystart:')) {
-    const groupId = data.replace('giveawaystart:', '')
+  if (data.startsWith('admgiveawaystart:')) {
+    const groupId = data.replace('admgiveawaystart:', '')
     const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
     if (!isAdmin) {
       await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
@@ -2071,16 +2108,12 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
       orderBy: { createdAt: 'desc' },
     })
 
-    const displayName = resolved.siteUser.telegramUsername
-      ? `@${resolved.siteUser.telegramUsername}`
-      : (resolved.siteUser.siteUsername || resolved.siteUser.firstName || resolved.resolvedTelegramId)
-
     const lines = infos.map((i: { sponsor: { name: string }; status: string; identifier: string }) =>
       `• ${i.sponsor.name}: ${refStatusLabel(i.status)} <i>(${i.identifier})</i>`
     )
 
     const messageText = [
-      `🔗 <b>${displayName}</b> — Sponsor Bilgileri`,
+      `🔗 Sorgulanan Üye — Sponsor Bilgileri`,
       '',
       lines.length ? lines.join('\n') : 'Bu üyenin hiç sponsor kaydı yok.',
     ].join('\n')

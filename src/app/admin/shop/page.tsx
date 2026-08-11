@@ -64,6 +64,7 @@ interface Order {
     price: number
     imageUrl?: string
     category: string
+    sponsor?: { id: string; name: string; identifierType?: string }
   }
 }
 
@@ -1108,10 +1109,17 @@ function OrderCard({
           <div className="flex items-start justify-between mb-2">
             <div>
               <h3 className="text-lg font-semibold admin-text-primary">{order.item.name}</h3>
-              <p className="text-sm admin-text-muted">
-                {order.user.firstName || order.user.username || 'Kullanıcı'}
-                {' '}(@{order.user.username || order.user.telegramId})
-              </p>
+              {order.item.sponsor ? (
+                <p className="text-sm admin-text-muted">
+                  <span className="font-semibold">Sponsor:</span> {order.item.sponsor.name}
+                  {' · '}
+                  <span className="font-semibold">Kullanıcı Adı:</span> {order.sponsorInfo || '—'}
+                </p>
+              ) : (
+                <p className="text-sm admin-text-muted">
+                  {order.sponsorInfo || 'Sponsor bilgisi girilmemiş'}
+                </p>
+              )}
             </div>
             {getStatusBadge(order.status)}
           </div>
@@ -1152,13 +1160,6 @@ function OrderCard({
             <div className="mt-2 p-2 bg-green-500/10 border border-green-500/30 rounded text-sm">
               <span className="text-green-400 font-semibold">TRC20 Cüzdan: </span>
               <span className="text-white font-mono">{order.walletAddress}</span>
-            </div>
-          )}
-
-          {order.sponsorInfo && (
-            <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/30 rounded text-sm">
-              <span className="text-purple-400 font-semibold">Sponsor Bilgisi: </span>
-              <span className="admin-text-primary">{order.sponsorInfo}</span>
             </div>
           )}
 

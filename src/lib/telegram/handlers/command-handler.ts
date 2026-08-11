@@ -309,6 +309,18 @@ async function handlePointsAdjustCommand(message: any, text: string, mode: 'add'
   const isAdmin = await checkTelegramAdmin(chatId, message.from.id)
   if (!isAdmin) return NextResponse.json({ ok: true })
 
+  // 🛡️ IDEMPOTENCY FIX: Telegram bazen aynı update'i webhook'a birden fazla
+  // kez gönderiyor (yanıt gecikirse ya da ağ sorunu olursa yeniden dener).
+  // Bu daha önce "puan aynı kalıyor" gibi görünen sorunların asıl nedeniydi:
+  // aynı /ekle ya da /sil komutu iki kez işlenip biri diğerini geri alıyordu
+  // gibi görünüyordu. Aynı mesaj (chatId + message_id) daha önce işlendiyse
+  // artık burada durdurulur, ikinci kez puan eklenip/silinmez.
+  const dedupeKey = `tgcmd:${chatId}:${message.message_id}`
+  const alreadyProcessed = await prisma.pointHistory.findFirst({ where: { relatedId: dedupeKey } })
+  if (alreadyProcessed) {
+    return NextResponse.json({ ok: true })
+  }
+
   const args = text.split(/\s+/).slice(1).filter(Boolean)
   const usage = mode === 'add'
     ? '📝 Kullanım:\n• Birine reply yapıp <code>/ekle 1000</code>\n• <code>/ekle @kullaniciadi 1000</code>\n• <code>/ekle 123456789 1000</code>'
@@ -384,6 +396,7 @@ async function handlePointsAdjustCommand(message: any, text: string, mode: 'add'
       description: mode === 'add'
         ? `Grup admini tarafından ${delta} puan eklendi (Telegram komutu)`
         : `Grup admini tarafından ${Math.abs(delta)} puan silindi (Telegram komutu)`,
+      relatedId: dedupeKey,
       adminUsername: message.from.username ? `@${message.from.username}` : (message.from.first_name || 'Admin'),
       balanceBefore,
       balanceAfter,
@@ -404,9 +417,10 @@ async function handlePointsAdjustCommand(message: any, text: string, mode: 'add'
 
   const emoji = mode === 'add' ? '✅' : '🗑️'
   const verb = mode === 'add' ? 'eklendi' : 'silindi'
+  const yon = mode === 'add' ? 'üyeye' : 'üyeden'
   await sendTelegramMessage(
     chatId,
-    `${emoji} ${displayName} adlı üyeden/üyeye <b>${Math.abs(delta)}</b> puan ${verb}.\n💰 Yeni bakiye: <b>${updatedUser.points}</b> puan`
+    `${emoji} ${displayName} adlı ${yon} <b>${Math.abs(delta)}</b> puan ${verb}.\n📊 Önceki bakiye: ${balanceBefore} → Yeni bakiye: <b>${updatedUser.points}</b> puan`
   )
   return NextResponse.json({ ok: true })
 }

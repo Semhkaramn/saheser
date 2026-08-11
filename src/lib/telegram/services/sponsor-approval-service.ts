@@ -31,7 +31,6 @@ function summaryLines(identifier: string, sponsorName: string, fieldType: string
     `🔗 <b>Yeni Referans Bildirimi</b>`,
     '',
     `Sponsor: <b>${sponsorName}</b>`,
-    `Site üyesi: <b>${siteUsername}</b>`,
     `${fieldLabel}: <code>${identifier}</code>`,
   ].join('\n')
 }
