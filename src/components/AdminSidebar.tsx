@@ -26,7 +26,8 @@ import {
   Users,
   ShieldAlert,
   Gift,
-  Activity
+  Activity,
+  Gamepad2
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -112,6 +113,13 @@ export default function AdminSidebar({ adminInfo }: AdminSidebarProps) {
       icon: Ticket,
       gradient: 'from-orange-500 to-orange-600',
       permission: 'canAccessWheel'
+    },
+    {
+      href: '/admin/games',
+      label: 'Oyunlar',
+      icon: Gamepad2,
+      gradient: 'from-fuchsia-500 to-purple-600',
+      permission: 'canAccessGames'
     },
     {
       href: '/admin/tickets',

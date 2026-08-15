@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
         canAccessEvents: admin.canAccessEvents,
         canAccessPromocodes: admin.canAccessPromocodes,
         canAccessActivityLogs: admin.canAccessActivityLogs,
+        canAccessGames: admin.canAccessGames,
       },
       createdAt: admin.createdAt,
       updatedAt: admin.updatedAt,

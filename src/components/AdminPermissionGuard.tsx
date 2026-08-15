@@ -13,6 +13,7 @@ const PAGE_PERMISSIONS: Record<string, string | null> = {
   '/admin/tasks': 'canAccessTasks',
   '/admin/shop': 'canAccessShop',
   '/admin/wheel': 'canAccessWheel',
+  '/admin/games': 'canAccessGames',
   '/admin/tickets': 'canAccessTickets',
   '/admin/events': 'canAccessEvents',
   '/admin/promocodes': 'canAccessPromocodes',

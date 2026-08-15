@@ -20,7 +20,8 @@ import {
   Gift,
   Sparkles,
   Repeat,
-  BookOpen
+  BookOpen,
+  Gamepad2
 } from 'lucide-react'
 import { useSocialMedia } from '@/lib/hooks/useSocialMedia'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
@@ -275,6 +276,7 @@ export default function Sidebar() {
       label: 'Kazan',
       items: [
         { href: '/cark', label: 'Çark', icon: Ticket, active: pathname === '/cark' },
+        { href: '/oyunlar', label: 'Oyunlar', icon: Gamepad2, active: pathname.startsWith('/oyunlar') },
         { href: '/gorevler', label: 'Görevler', icon: FileText, active: pathname === '/gorevler' },
         { href: '/market', label: 'Mağaza', icon: ShoppingBag, active: pathname === '/market' },
       ],

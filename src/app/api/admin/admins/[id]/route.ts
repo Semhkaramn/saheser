@@ -33,6 +33,7 @@ export async function GET(
         canAccessEvents: true,
         canAccessPromocodes: true,
         canAccessActivityLogs: true,
+        canAccessGames: true,
         createdAt: true,
         updatedAt: true,
       }
@@ -105,6 +106,7 @@ export async function PUT(
         canAccessEvents: permissions.canAccessEvents,
         canAccessPromocodes: permissions.canAccessPromocodes,
         canAccessActivityLogs: permissions.canAccessActivityLogs,
+        canAccessGames: permissions.canAccessGames,
       },
       select: {
         id: true,
@@ -123,6 +125,7 @@ export async function PUT(
         canAccessEvents: true,
         canAccessPromocodes: true,
         canAccessActivityLogs: true,
+        canAccessGames: true,
         createdAt: true,
         updatedAt: true,
       }

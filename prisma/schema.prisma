@@ -317,6 +317,7 @@ model User {
   eventParticipations EventParticipant[] // Kullanıcının etkinlik katılımları
   eventWins        EventWinner[] // Kullanıcının kazandığı etkinlikler
   taskRewards      UserTaskReward[] // Kullanıcının aldığı görev ödülleri
+  gamePlays        GamePlay[] // Kullanıcının oynadığı casino tarzı oyun elleri (puan bazlı)
 
   @@index([email])
   @@index([siteUsername])
@@ -597,6 +598,7 @@ model Admin {
   canAccessEvents       Boolean     @default(false)
   canAccessPromocodes   Boolean     @default(false)
   canAccessActivityLogs Boolean     @default(false)
+  canAccessGames        Boolean     @default(false)
 
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -1290,6 +1292,59 @@ model BroadcastRecipient {
   @@index([telegramId])
   @@index([status])
   @@index([broadcastId, status]) // Broadcast detayı için filtreleme
+}
+
+// ========== PUAN BAZLI OYUNLAR (Mines, Zar, Rulet, Blackjack) ==========
+// NOT: Bu oyunlarda GERÇEK PARA YOKTUR. Sadece site içi puan kullanılır ve
+// puanlar yalnızca market üzerinden parasal değeri olmayan ürünlerle
+// (rozet, avatar, kozmetik vb.) değiştirilebilir. Amaç sadakat/etkileşim.
+
+// Her oyun türü için admin tarafından yönetilen ayarlar (min/max bahis vb.)
+model GameSettings {
+  id              String   @id @default(cuid())
+  gameType        String   @unique // "mines" | "dice" | "roulette" | "blackjack"
+  isEnabled       Boolean  @default(true)
+  minBet          Int      @default(10)
+  maxBet          Int      @default(10000)
+  // Oyuna özel ek ayarlar (JSON) - örn. mines: {"maxMines":24,"gridSize":25}
+  extraSettings   String?  @db.Text
+  // House edge / RTP ayarı (yüzde olarak, ör. 4 = %4 kesinti) - dice/roulette çarpan hesaplarında kullanılır
+  houseEdgePercent Float   @default(3)
+  updatedAt       DateTime @updatedAt
+}
+
+// Her el/tur kalıcı olarak burada tutulur. Blackjack gibi çok adımlı
+// oyunlarda "pending" durumundaki tek satır güncellenir (deal -> hit -> stand),
+// diğer oyunlarda (mines/dice/rulet) tek işlemde oluşturulup sonuçlanır.
+model GamePlay {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gameType     String   // "mines" | "dice" | "roulette" | "blackjack"
+  betAmount    Int      // Oyuna girerken düşülen puan
+  payout       Int      @default(0) // Kazanılan/geri verilen puan (kaybettiyse 0)
+  netChange    Int      @default(0) // payout - betAmount (geçmiş listesinde +/- göstermek için)
+  multiplier   Float?   // Uygulanan çarpan (varsa)
+  result       String   @default("pending") // "pending" | "win" | "lose" | "cashout"
+
+  // Oyuna özel veri (mayın konumları, zar sonucu, rulet sayısı, blackjack el durumu vb.) - JSON
+  details      String?  @db.Text
+
+  // Adil oyun (provably fair) için sunucu/istemci seed'leri
+  serverSeed     String?
+  serverSeedHash String?
+  clientSeed     String?
+  nonce          Int?     @default(0)
+
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+
+  @@index([userId])
+  @@index([gameType])
+  @@index([userId, gameType])
+  @@index([result])
+  @@index([createdAt])
 }
 
 // ─── Deneme Bonusları & Promosyonlar ──────────────────────────

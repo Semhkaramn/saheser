@@ -28,6 +28,7 @@ interface Admin {
   canAccessEvents: boolean
   canAccessPromocodes: boolean
   canAccessActivityLogs: boolean
+  canAccessGames: boolean
   createdAt: string
 }
 
@@ -36,6 +37,7 @@ const PERMISSION_LABELS = {
   canAccessTasks: 'Görevler',
   canAccessShop: 'Market',
   canAccessWheel: 'Çark',
+  canAccessGames: 'Oyunlar (Mines/Zar/Rulet/BJ)',
   canAccessSponsors: 'Sponsorlar',
   canAccessAds: 'Reklam Ayarları',
   canAccessRanks: 'Rütbeler',
@@ -153,6 +155,7 @@ export default function AdminsPage() {
             canAccessEvents: selectedAdmin.canAccessEvents,
             canAccessPromocodes: selectedAdmin.canAccessPromocodes,
             canAccessActivityLogs: selectedAdmin.canAccessActivityLogs,
+            canAccessGames: selectedAdmin.canAccessGames,
           }
         })
       })

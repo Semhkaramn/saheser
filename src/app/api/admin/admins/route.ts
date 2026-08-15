@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
         canAccessEvents: true,
         canAccessPromocodes: true,
         canAccessActivityLogs: true,
+        canAccessGames: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest) {
         canAccessEvents: permissions.canAccessEvents ?? false,
         canAccessPromocodes: permissions.canAccessPromocodes ?? false,
         canAccessActivityLogs: permissions.canAccessActivityLogs ?? false,
+        canAccessGames: permissions.canAccessGames ?? false,
       },
       select: {
         id: true,
@@ -118,6 +120,7 @@ export async function POST(request: NextRequest) {
         canAccessEvents: true,
         canAccessPromocodes: true,
         canAccessActivityLogs: true,
+        canAccessGames: true,
         createdAt: true,
       }
     })
