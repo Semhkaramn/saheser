@@ -43,7 +43,7 @@ interface GamePlayItem {
   multiplier: number | null
   result: string
   createdAt: string
-  user: { id: string; username: string; email: string }
+  user: { id: string; siteUsername: string | null; email: string | null }
 }
 
 interface GameStat {
@@ -293,7 +293,7 @@ export default function AdminGamesPage() {
                   return (
                     <tr key={item.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
                       <td className="px-4 py-3">
-                        <div className="font-semibold" style={{ color: theme.text }}>{item.user?.username || '—'}</div>
+                        <div className="font-semibold" style={{ color: theme.text }}>{item.user?.siteUsername || '—'}</div>
                         <div className="text-xs" style={{ color: theme.textMuted }}>{item.user?.email}</div>
                       </td>
                       <td className="px-4 py-3" style={{ color: theme.text }}>{GAME_LABELS[item.gameType] || item.gameType}</td>

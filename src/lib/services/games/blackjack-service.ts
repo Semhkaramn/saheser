@@ -6,6 +6,7 @@
  * - Double (2 katına çıkarma) ilk 2 kartta desteklenir
  */
 
+import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import {
   placeBet,
@@ -249,7 +250,7 @@ export async function doubleBlackjack(userId: string, gamePlayId: string) {
   if (details.playerHand.length !== 2) throw new GameError('CANNOT_DOUBLE', 'Sadece ilk 2 kartla double yapılabilir')
 
   // Ek bahis miktarı kadar puan daha düş
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.user.findUnique({ where: { id: userId }, select: { points: true } })
     if (!user || user.points < gamePlay.betAmount) throw new GameError('INSUFFICIENT_POINTS', 'Double için yetersiz puan')
     await tx.user.update({ where: { id: userId }, data: { points: { decrement: gamePlay.betAmount } } })
