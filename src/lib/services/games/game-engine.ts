@@ -151,6 +151,99 @@ export class GameError extends Error {
 }
 
 /**
+ * Zar/Rulet gibi TEK ADIMDA sonuçlanan oyunlar için: bahis alma + sonuçlandırma
+ * AYNI veritabanı transaction'ı içinde yapılır. Böylece "bahis düşüldü ama
+ * sonuç hiç işlenemedi, puan da geri gelmedi" gibi bir ara durumun oluşması
+ * imkansız hale gelir — ya ikisi birden başarılı olur ya da hiçbiri olmaz.
+ */
+export async function placeBetAndResolveInstant(params: {
+  userId: string
+  gameType: GameType
+  betAmount: number
+  result: 'win' | 'lose'
+  payout: number
+  multiplier?: number
+  details: Record<string, any>
+  serverSeed: string
+  serverSeedHash: string
+  clientSeed: string
+  nonce: number
+}) {
+  const { userId, gameType, betAmount, result, payout, multiplier, details, serverSeed, serverSeedHash, clientSeed, nonce } = params
+
+  const settings = await getGameSettings(gameType)
+
+  if (!settings.isEnabled) throw new GameError('GAME_DISABLED', 'Bu oyun şu anda kapalı')
+  if (!Number.isInteger(betAmount) || betAmount <= 0) throw new GameError('INVALID_BET', 'Geçersiz bahis miktarı')
+  if (betAmount < settings.minBet) throw new GameError('BET_TOO_LOW', `Minimum bahis: ${settings.minBet} puan`)
+  if (betAmount > settings.maxBet) throw new GameError('BET_TOO_HIGH', `Maksimum bahis: ${settings.maxBet} puan`)
+
+  const turkeyNow = getTurkeyDate()
+
+  const { finalPlay, newPoints } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, points: true, isBanned: true } })
+    if (!user) throw new GameError('USER_NOT_FOUND', 'Kullanıcı bulunamadı')
+    if (user.isBanned) throw new GameError('USER_BANNED', 'Hesabınız kısıtlanmış')
+    if (user.points < betAmount) throw new GameError('INSUFFICIENT_POINTS', 'Yetersiz puan bakiyesi')
+
+    const netChange = payout - betAmount
+    const updatedUser = await tx.user.update({
+      where: { id: userId },
+      data: { points: { increment: netChange } }, // kayıpta negatif, kazançta net pozitif/negatif fark
+      select: { points: true },
+    })
+
+    const finalPlay = await tx.gamePlay.create({
+      data: {
+        userId,
+        gameType,
+        betAmount,
+        payout,
+        netChange,
+        multiplier: multiplier ?? null,
+        result,
+        details: JSON.stringify(details),
+        serverSeed,
+        serverSeedHash,
+        clientSeed,
+        nonce,
+        createdAt: turkeyNow,
+        resolvedAt: turkeyNow,
+      },
+    })
+
+    if (payout > 0) {
+      await tx.pointHistory.create({
+        data: {
+          userId,
+          amount: payout,
+          type: `game_${gameType}_win`,
+          description: `${gameLabel(gameType)} - kazanç`,
+          relatedId: finalPlay.id,
+          createdAt: turkeyNow,
+        },
+      })
+    }
+
+    return { finalPlay, newPoints: updatedUser.points }
+  })
+
+  invalidateCache.leaderboard()
+
+  logActivity({
+    userId,
+    actionType: 'game_play',
+    actionTitle: `${gameLabel(gameType)} oynadı`,
+    actionDescription: result === 'lose' ? `${betAmount} puan bahis - kayıp` : `${betAmount} puan bahis, ${payout} puan kazanç`,
+    relatedId: finalPlay.id,
+    relatedType: 'game_play',
+    metadata: { gameType, betAmount, payout, result, multiplier: multiplier ?? null },
+  }).catch((err) => console.error('Game activity log error:', err))
+
+  return { finalPlay, newPoints }
+}
+
+/**
  * Kullanıcının bahsini doğrular ve puanını düşerek "pending" bir GamePlay kaydı açar.
  * (Mines/Blackjack gibi çok adımlı oyunlarda bu kayıt daha sonra resolvePendingGamePlay
  * ile "win"/"lose" olarak kapatılır. Dice/Rulet gibi tek adımlı oyunlarda aynı transaction
@@ -328,6 +421,17 @@ export function gameErrorResponse(error: unknown) {
   }
   console.error('Game API error:', error)
   return NextResponse.json({ error: 'Sunucu hatası' }, { status: 500 })
+}
+
+/**
+ * Kullanıcının o oyun türünde yarım kalmış (pending) bir eli var mı kontrol eder.
+ * Sayfa yenilenmesi/kapatılması durumunda oyunun kurtarılabilmesi için kullanılır.
+ */
+export async function getActivePendingGame(userId: string, gameType: GameType) {
+  return prisma.gamePlay.findFirst({
+    where: { userId, gameType, result: 'pending' },
+    orderBy: { createdAt: 'desc' },
+  })
 }
 
 export function gameLabel(gameType: GameType): string {

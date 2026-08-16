@@ -8,6 +8,7 @@ import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
 import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
 import { Dices, ChevronLeft, Wallet, ArrowUpDown } from 'lucide-react'
+import GameGate from '@/components/games/GameGate'
 
 export default function DicePage() {
   const { theme } = useUserTheme()
@@ -61,11 +62,11 @@ export default function DicePage() {
   }, [user, betAmount, target, direction, setShowLoginModal, refreshUser])
 
   return (
+    <GameGate gameType="dice">
     <div className="max-w-3xl mx-auto">
       <PageHeader
         icon={Dices}
         title="Zar"
-        subtitle="Hedefi seç, yönü belirle, at!"
         action={
           <Link href="/oyunlar" className="text-sm font-medium flex items-center gap-1" style={{ color: theme.colors.textMuted }}>
             <ChevronLeft className="w-4 h-4" /> Oyunlar
@@ -193,5 +194,6 @@ export default function DicePage() {
         </ThemedButton>
       </div>
     </div>
+    </GameGate>
   )
 }

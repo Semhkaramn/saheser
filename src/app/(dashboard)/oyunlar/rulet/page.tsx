@@ -8,6 +8,7 @@ import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
 import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
 import { CircleDot, ChevronLeft, Wallet, Trash2 } from 'lucide-react'
+import GameGate from '@/components/games/GameGate'
 
 const RED_NUMBERS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36])
 type BetType = 'straight' | 'red' | 'black' | 'even' | 'odd' | 'low' | 'high' | 'dozen1' | 'dozen2' | 'dozen3'
@@ -45,6 +46,7 @@ export default function RoulettePage() {
   const [busy, setBusy] = useState(false)
   const [spinResult, setSpinResult] = useState<number | null>(null)
   const [rotation, setRotation] = useState(0)
+  const [zooming, setZooming] = useState(false)
   const [betResults, setBetResults] = useState<Record<string, { won: boolean; payout: number }>>({})
 
   const totalBet = bets.reduce((sum, b) => sum + b.amount, 0)
@@ -93,11 +95,13 @@ export default function RoulettePage() {
         return
       }
 
-      // Çark animasyonu: sonuç açısına + birkaç tam tur ekle
+      // Çark animasyonu: sonuç açısına + birkaç tam tur ekle, çevirirken çark büyür (odaklanma efekti)
       const targetAngle = (data.spinResult / 37) * 360
+      setZooming(true)
       setRotation((prev) => prev + 360 * 4 + targetAngle)
       setTimeout(() => {
         setSpinResult(data.spinResult)
+        setZooming(false)
         const resultMap: Record<string, { won: boolean; payout: number }> = {}
         for (const br of data.betResults) {
           const key = `${br.type}-${br.value ?? ''}`
@@ -126,11 +130,11 @@ export default function RoulettePage() {
   }, [])
 
   return (
+    <GameGate gameType="roulette">
     <div className="max-w-4xl mx-auto">
       <PageHeader
         icon={CircleDot}
         title="Rulet"
-        subtitle="Bahsini koy, çarkı çevir"
         action={
           <Link href="/oyunlar" className="text-sm font-medium flex items-center gap-1" style={{ color: theme.colors.textMuted }}>
             <ChevronLeft className="w-4 h-4" /> Oyunlar
@@ -139,12 +143,23 @@ export default function RoulettePage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5">
+        {/* Çevirirken ekranı karartıp çarkı ortada büyüten odak efekti */}
+        {zooming && (
+          <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm animate-in fade-in duration-300" />
+        )}
+
         {/* Çark */}
         <div
           className="rounded-2xl border p-5 flex flex-col items-center justify-center gap-4"
           style={{ backgroundColor: hexToRgba(theme.colors.card, 0.85), borderColor: hexToRgba(theme.colors.border, 0.5) }}
         >
-          <div className="relative w-40 h-40">
+          <div
+            className={
+              zooming
+                ? 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-[2.2] z-50 w-40 h-40 transition-transform duration-500 ease-out'
+                : 'relative w-40 h-40 transition-transform duration-500 ease-out'
+            }
+          >
             <div
               className="w-40 h-40 rounded-full border-4 flex items-center justify-center"
               style={{
@@ -152,6 +167,7 @@ export default function RoulettePage() {
                 background: 'conic-gradient(#18181b 0deg 9.7deg, #dc2626 9.7deg 19.4deg, #18181b 19.4deg 29.1deg, #22c55e 29.1deg 38.8deg, #dc2626 38.8deg 48.5deg, #18181b 48.5deg 58.2deg, #dc2626 58.2deg 67.9deg, #18181b 67.9deg 77.6deg, #dc2626 77.6deg 87.3deg, #18181b 87.3deg 97deg, #dc2626 97deg 106.7deg, #18181b 106.7deg 116.4deg, #dc2626 116.4deg 126.1deg, #18181b 126.1deg 135.8deg, #dc2626 135.8deg 145.5deg, #18181b 145.5deg 155.2deg, #dc2626 155.2deg 164.9deg, #18181b 164.9deg 174.6deg, #dc2626 174.6deg 184.3deg, #18181b 184.3deg 194deg, #dc2626 194deg 203.7deg, #18181b 203.7deg 213.4deg, #dc2626 213.4deg 223.1deg, #18181b 223.1deg 232.8deg, #dc2626 232.8deg 242.5deg, #18181b 242.5deg 252.2deg, #dc2626 252.2deg 261.9deg, #18181b 261.9deg 271.6deg, #dc2626 271.6deg 281.3deg, #18181b 281.3deg 291deg, #dc2626 291deg 300.7deg, #18181b 300.7deg 310.4deg, #dc2626 310.4deg 320.1deg, #18181b 320.1deg 329.8deg, #dc2626 329.8deg 339.5deg, #18181b 339.5deg 349.2deg, #dc2626 349.2deg 360deg)',
                 transform: `rotate(${rotation}deg)`,
                 transition: busy ? 'transform 2.2s cubic-bezier(0.2, 0.8, 0.2, 1)' : undefined,
+                boxShadow: zooming ? '0 0 60px rgba(0,0,0,0.6)' : undefined,
               }}
             />
             <div
@@ -325,6 +341,7 @@ export default function RoulettePage() {
         </div>
       </div>
     </div>
+    </GameGate>
   )
 }
 

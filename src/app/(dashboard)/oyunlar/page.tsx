@@ -1,16 +1,17 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useAuthState } from '@/components/providers/auth-provider'
 import PageHeader from '@/components/PageHeader'
 import { hexToRgba } from '@/components/ui/themed'
-import { Gamepad2, Bomb, Dices, CircleDot, Spade, Trophy, Sparkles } from 'lucide-react'
+import { Gamepad2, Bomb, Dices, CircleDot, Spade, Sparkles, Loader2 } from 'lucide-react'
 
 interface GameCardDef {
   href: string
   title: string
-  description: string
+  gameType: 'mines' | 'dice' | 'roulette' | 'blackjack'
   icon: React.ElementType
   accentFrom: string
   accentTo: string
@@ -21,7 +22,7 @@ const GAMES: GameCardDef[] = [
   {
     href: '/oyunlar/mines',
     title: 'Mines',
-    description: 'Izgarada mayınlardan kaçın, her güvenli hücrede çarpanın büyüsün. İstediğin an puanını al.',
+    gameType: 'mines',
     icon: Bomb,
     accentFrom: '#22c55e',
     accentTo: '#0ea5e9',
@@ -30,7 +31,7 @@ const GAMES: GameCardDef[] = [
   {
     href: '/oyunlar/zar',
     title: 'Zar',
-    description: 'Hedefini seç, üstünde ya da altında çıksın. Basit, hızlı, adrenalin dolu.',
+    gameType: 'dice',
     icon: Dices,
     accentFrom: '#f59e0b',
     accentTo: '#ef4444',
@@ -38,7 +39,7 @@ const GAMES: GameCardDef[] = [
   {
     href: '/oyunlar/rulet',
     title: 'Rulet',
-    description: 'Kırmızı, siyah, tek sayı ya da düzine — klasik Avrupa ruleti puanlarınla masada.',
+    gameType: 'roulette',
     icon: CircleDot,
     accentFrom: '#dc2626',
     accentTo: '#7c3aed',
@@ -46,7 +47,7 @@ const GAMES: GameCardDef[] = [
   {
     href: '/oyunlar/blackjack',
     title: 'Blackjack',
-    description: '21\'i geç dealer\'ı yen. Kart say, double yap, kazan.',
+    gameType: 'blackjack',
     icon: Spade,
     accentFrom: '#0f172a',
     accentTo: '#334155',
@@ -67,7 +68,6 @@ function GameCard({ game }: { game: GameCardDef }) {
         borderColor: hexToRgba(theme.colors.border, 0.5),
       }}
     >
-      {/* Arka plan glow efekti */}
       <div
         className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20 blur-3xl transition-opacity duration-300 group-hover:opacity-40"
         style={{ background: `linear-gradient(135deg, ${game.accentFrom}, ${game.accentTo})` }}
@@ -95,12 +95,9 @@ function GameCard({ game }: { game: GameCardDef }) {
         <Icon className="w-7 h-7 text-white" />
       </div>
 
-      <h3 className="relative text-lg font-bold mb-1.5" style={{ color: theme.colors.text }}>
+      <h3 className="relative text-lg font-bold mb-4" style={{ color: theme.colors.text }}>
         {game.title}
       </h3>
-      <p className="relative text-sm leading-relaxed mb-4" style={{ color: theme.colors.textMuted }}>
-        {game.description}
-      </p>
 
       <div
         className="relative inline-flex items-center gap-1.5 text-sm font-semibold transition-all duration-300 group-hover:gap-2.5"
@@ -118,13 +115,37 @@ function GameCard({ game }: { game: GameCardDef }) {
 export default function GamesHubPage() {
   const { theme } = useUserTheme()
   const { user } = useAuthState()
+  const [enabledMap, setEnabledMap] = useState<Record<string, boolean> | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/games/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return
+        setEnabledMap({
+          mines: data.mines?.isEnabled ?? true,
+          dice: data.dice?.isEnabled ?? true,
+          roulette: data.roulette?.isEnabled ?? true,
+          blackjack: data.blackjack?.isEnabled ?? true,
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setEnabledMap({ mines: true, dice: true, roulette: true, blackjack: true })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const visibleGames = enabledMap ? GAMES.filter((g) => enabledMap[g.gameType]) : null
 
   return (
     <div className="max-w-5xl mx-auto">
       <PageHeader
         icon={Gamepad2}
         title="Oyunlar"
-        subtitle="Puanlarınla oyna, kazandıkça markette biriktir — gerçek para geçmez"
+        subtitle="Puanlarınla oyna, kazandıkça markette biriktir"
         action={
           user && (
             <div
@@ -143,26 +164,24 @@ export default function GamesHubPage() {
         }
       />
 
-      <div
-        className="rounded-2xl border p-4 mb-6 flex items-start gap-3"
-        style={{
-          background: `linear-gradient(135deg, ${hexToRgba(theme.colors.gradientFrom, 0.12)}, ${hexToRgba(theme.colors.gradientTo, 0.06)})`,
-          borderColor: hexToRgba(theme.colors.gradientFrom, 0.3),
-        }}
-      >
-        <Trophy className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: theme.colors.gradientFrom }} />
-        <p className="text-sm" style={{ color: theme.colors.textSecondary }}>
-          Bu oyunlarda <strong>gerçek para kullanılmaz</strong>. Sadece site puanınla oynarsın, her el geçmişine
-          ve admin paneline kaydedilir. Kazandığın puanları markette rozet, avatar ve diğer ödüllerle
-          değiştirebilirsin.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {GAMES.map((game) => (
-          <GameCard key={game.href} game={game} />
-        ))}
-      </div>
+      {!visibleGames ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin" style={{ color: theme.colors.textMuted }} />
+        </div>
+      ) : visibleGames.length === 0 ? (
+        <div
+          className="rounded-2xl border p-8 text-center text-sm"
+          style={{ backgroundColor: hexToRgba(theme.colors.card, 0.85), borderColor: hexToRgba(theme.colors.border, 0.5), color: theme.colors.textMuted }}
+        >
+          Şu anda aktif oyun bulunmuyor.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {visibleGames.map((game) => (
+            <GameCard key={game.href} game={game} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

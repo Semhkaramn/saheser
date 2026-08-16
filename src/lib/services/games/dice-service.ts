@@ -5,8 +5,7 @@
  */
 
 import {
-  placeBet,
-  resolveGamePlay,
+  placeBetAndResolveInstant,
   getGameSettings,
   generateServerSeed,
   hashServerSeed,
@@ -44,7 +43,7 @@ export async function playDice(params: {
 
   const serverSeed = generateServerSeed()
   const serverSeedHash = hashServerSeed(serverSeed)
-  const nonce = Date.now()
+  const nonce = Math.floor(Math.random() * 1_000_000_000) // Int4 (postgres) sınırları içinde kalmalı
 
   // 0.00 - 100.00 arası sonuç (2 ondalık)
   const roll = Math.floor(fairRandom(serverSeed, clientSeed, nonce) * 10001) / 100
@@ -53,24 +52,18 @@ export async function playDice(params: {
   const multiplier = calcMultiplier(target, direction, settings.houseEdgePercent)
   const payout = won ? Math.floor(betAmount * multiplier) : 0
 
-  const { gamePlay } = await placeBet({
+  const { finalPlay, newPoints } = await placeBetAndResolveInstant({
     userId,
     gameType: 'dice',
     betAmount,
+    result: won ? 'win' : 'lose',
+    payout,
+    multiplier,
     details: { target, direction, roll },
     serverSeed,
     serverSeedHash,
     clientSeed,
     nonce,
-  })
-
-  const resolved = await resolveGamePlay({
-    gamePlayId: gamePlay.id,
-    userId,
-    result: won ? 'win' : 'lose',
-    payout,
-    multiplier,
-    details: { roll },
   })
 
   return {
@@ -81,6 +74,6 @@ export async function playDice(params: {
     winChance: calcWinChance(target, direction),
     serverSeed,
     serverSeedHash,
-    newPoints: resolved.newPoints,
+    newPoints,
   }
 }

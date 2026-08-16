@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
@@ -8,6 +8,7 @@ import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
 import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
 import { Bomb, Gem, ChevronLeft, Minus, Plus, Wallet, TrendingUp } from 'lucide-react'
+import GameGate from '@/components/games/GameGate'
 
 const GRID_SIZE = 25
 
@@ -34,6 +35,30 @@ export default function MinesPage() {
   const [lastResult, setLastResult] = useState<{ type: 'win' | 'lose'; payout?: number } | null>(null)
 
   const potentialPayout = Math.floor(betAmount * multiplier)
+
+  // Sayfa açıldığında yarım kalmış bir el var mı kontrol et (yenileme/çıkış koruması)
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    fetch('/api/games/mines/active')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data.active) return
+        const a = data.active
+        setGame({ gamePlayId: a.gamePlayId, mineCount: a.mineCount, betAmount: a.betAmount })
+        setBetAmount(a.betAmount)
+        setMineCount(a.mineCount)
+        setMultiplier(a.multiplier || 1)
+        const restored = Array(GRID_SIZE).fill('hidden') as TileState[]
+        for (const idx of a.revealedTiles || []) restored[idx] = 'safe'
+        setTiles(restored)
+        toast.info('Yarım kalan elin kaldığı yerden devam ediyor')
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const resetBoard = () => {
     setTiles(Array(GRID_SIZE).fill('hidden'))
@@ -70,6 +95,19 @@ export default function MinesPage() {
         toast.error(data.error || 'Oyun başlatılamadı')
         return
       }
+
+      if (data.resumed) {
+        // Aslında yarım kalmış bir el varmış, o kaldığı yerden devam ediyor
+        setGame({ gamePlayId: data.gamePlayId, mineCount: data.mineCount, betAmount: data.betAmount })
+        setMineCount(data.mineCount)
+        setMultiplier(data.multiplier || 1)
+        const restored = Array(GRID_SIZE).fill('hidden') as TileState[]
+        for (const idx of data.revealedTiles || []) restored[idx] = 'safe'
+        setTiles(restored)
+        toast.info('Yarım kalan elin kaldığı yerden devam ediyor')
+        return
+      }
+
       setGame({ gamePlayId: data.gamePlayId, mineCount, betAmount })
       setTiles(Array(GRID_SIZE).fill('hidden'))
       setMultiplier(1)
@@ -159,11 +197,11 @@ export default function MinesPage() {
   const revealedCount = tiles.filter((t) => t === 'safe').length
 
   return (
+    <GameGate gameType="mines">
     <div className="max-w-4xl mx-auto">
       <PageHeader
         icon={Bomb}
         title="Mines"
-        subtitle="Güvenli hücreleri aç, mayınlardan kaçın"
         action={
           <Link href="/oyunlar" className="text-sm font-medium flex items-center gap-1" style={{ color: theme.colors.textMuted }}>
             <ChevronLeft className="w-4 h-4" /> Oyunlar
@@ -328,5 +366,6 @@ export default function MinesPage() {
         </div>
       </div>
     </div>
+    </GameGate>
   )
 }

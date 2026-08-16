@@ -5,8 +5,7 @@
  */
 
 import {
-  placeBet,
-  resolveGamePlay,
+  placeBetAndResolveInstant,
   getGameSettings,
   generateServerSeed,
   hashServerSeed,
@@ -107,7 +106,7 @@ export async function playRoulette(params: {
 
   const serverSeed = generateServerSeed()
   const serverSeedHash = hashServerSeed(serverSeed)
-  const nonce = Date.now()
+  const nonce = Math.floor(Math.random() * 1_000_000_000) // Int4 (postgres) sınırları içinde kalmalı
 
   const roll = fairRandom(serverSeed, clientSeed, nonce)
   const spinResult = Math.floor(roll * 37) // 0-36
@@ -120,25 +119,19 @@ export async function playRoulette(params: {
     return { ...bet, won, payout }
   })
 
-  const { gamePlay } = await placeBet({
+  const won = totalPayout > 0
+  const { newPoints } = await placeBetAndResolveInstant({
     userId,
     gameType: 'roulette',
     betAmount: totalBet,
-    details: { bets, spinResult },
+    result: won ? 'win' : 'lose',
+    payout: totalPayout,
+    multiplier: totalBet > 0 ? totalPayout / totalBet : 0,
+    details: { bets, spinResult, betResults },
     serverSeed,
     serverSeedHash,
     clientSeed,
     nonce,
-  })
-
-  const won = totalPayout > 0
-  const resolved = await resolveGamePlay({
-    gamePlayId: gamePlay.id,
-    userId,
-    result: won ? 'win' : 'lose',
-    payout: totalPayout,
-    multiplier: totalBet > 0 ? totalPayout / totalBet : 0,
-    details: { spinResult, betResults },
   })
 
   return {
@@ -150,6 +143,6 @@ export async function playRoulette(params: {
     won,
     serverSeed,
     serverSeedHash,
-    newPoints: resolved.newPoints,
+    newPoints,
   }
 }

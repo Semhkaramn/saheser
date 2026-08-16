@@ -12,6 +12,7 @@ import {
   placeBet,
   resolveGamePlay,
   getGameSettings,
+  getActivePendingGame,
   generateServerSeed,
   hashServerSeed,
   fairRandomSequence,
@@ -87,6 +88,22 @@ function drawCard(details: BlackjackDetails): Card {
 }
 
 export async function startBlackjackGame(userId: string, betAmount: number, clientSeed: string) {
+  // Yarım kalmış bir el varsa (sayfa yenilendi/kapatıldı vb.) yeni bahis almak yerine
+  // mevcut eli döndür.
+  const existing = await getActivePendingGame(userId, 'blackjack')
+  if (existing) {
+    const existingDetails: BlackjackDetails = JSON.parse(existing.details || '{}')
+    return {
+      resumed: true as const,
+      gamePlayId: existing.id,
+      playerHand: existingDetails.playerHand,
+      dealerUpcard: existingDetails.dealerHand[0],
+      playerValue: handValue(existingDetails.playerHand),
+      status: 'playing' as const,
+      canDouble: existingDetails.playerHand.length === 2 && !existingDetails.doubled,
+    }
+  }
+
   const settings = await getGameSettings('blackjack')
   const deckCount = settings.extraSettings.decks ?? 6
 
@@ -127,6 +144,7 @@ export async function startBlackjackGame(userId: string, betAmount: number, clie
   }
 
   return {
+    resumed: false as const,
     gamePlayId: gamePlay.id,
     playerHand,
     dealerUpcard: dealerHand[0], // dealer'ın ikinci kartı el bitene kadar gizli

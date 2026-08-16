@@ -10,6 +10,7 @@ import {
   placeBet,
   resolveGamePlay,
   getGameSettings,
+  getActivePendingGame,
   generateServerSeed,
   hashServerSeed,
   fairRandomSequence,
@@ -43,6 +44,22 @@ function calcMultiplier(mineCount: number, safePicks: number, houseEdgePercent: 
 }
 
 export async function startMinesGame(userId: string, betAmount: number, mineCount: number, clientSeed: string) {
+  // Yarım kalmış bir el varsa (sayfa yenilendi/kapatıldı vb.) yeni oyun açmak yerine
+  // mevcut eli kaldığı yerden devam ettirmesi için geri döndür.
+  const existing = await getActivePendingGame(userId, 'mines')
+  if (existing) {
+    const existingDetails: MinesDetails = JSON.parse(existing.details || '{}')
+    return {
+      resumed: true as const,
+      gamePlayId: existing.id,
+      mineCount: existingDetails.mineCount,
+      gridSize: existingDetails.gridSize,
+      betAmount: existing.betAmount,
+      revealedTiles: existingDetails.revealedTiles,
+      multiplier: existingDetails.currentMultiplier,
+    }
+  }
+
   const settings = await getGameSettings('mines')
   const min = settings.extraSettings.minMines ?? 1
   const max = settings.extraSettings.maxMines ?? 24
@@ -83,6 +100,7 @@ export async function startMinesGame(userId: string, betAmount: number, mineCoun
   })
 
   return {
+    resumed: false as const,
     gamePlayId: gamePlay.id,
     serverSeedHash, // serverSeed round bitmeden ASLA client'a gönderilmez
     mineCount,

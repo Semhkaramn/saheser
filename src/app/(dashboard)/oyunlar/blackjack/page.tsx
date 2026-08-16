@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
@@ -8,6 +8,7 @@ import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
 import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
 import { Spade, ChevronLeft, Wallet } from 'lucide-react'
+import GameGate from '@/components/games/GameGate'
 
 interface Card {
   rank: string
@@ -29,33 +30,39 @@ const OUTCOME_LABELS: Record<string, { text: string; color: string }> = {
   dealer_win: { text: 'Dealer kazandı', color: '#ef4444' },
 }
 
-function CardView({ card, hidden }: { card?: Card; hidden?: boolean }) {
+function CardView({ card, hidden, index = 0, justRevealed = false }: { card?: Card; hidden?: boolean; index?: number; justRevealed?: boolean }) {
   const { theme } = useUserTheme()
   const isRed = card && (card.suit === '♥' || card.suit === '♦')
+  const delay = `${index * 130}ms`
 
   if (hidden || !card) {
     return (
       <div
-        className="w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-lg border-2 flex items-center justify-center flex-shrink-0"
+        className="relative w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-lg border-2 flex items-center justify-center flex-shrink-0 overflow-hidden animate-in fade-in slide-in-from-top-6 duration-300"
         style={{
-          background: `linear-gradient(135deg, ${theme.colors.gradientFrom}, ${theme.colors.gradientTo})`,
-          borderColor: hexToRgba(theme.colors.border, 0.6),
+          background: 'repeating-linear-gradient(135deg, #1e3a8a 0px, #1e3a8a 6px, #1e40af 6px, #1e40af 12px)',
+          borderColor: 'rgba(255,255,255,0.35)',
+          animationDelay: delay,
+          animationFillMode: 'backwards',
         }}
       >
-        <div className="w-8 h-12 rounded border border-white/30" />
+        <div className="w-7 h-11 sm:w-9 sm:h-14 rounded border-2 border-white/40 flex items-center justify-center">
+          <span className="text-white/50 text-[10px] sm:text-xs font-black">♠</span>
+        </div>
       </div>
     )
   }
 
   return (
     <div
-      className="w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-lg border-2 bg-white flex flex-col items-center justify-center flex-shrink-0 shadow-lg animate-in zoom-in-75 fade-in duration-200"
-      style={{ borderColor: 'rgba(0,0,0,0.1)' }}
+      key={justRevealed ? 'revealed' : undefined}
+      className="w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-lg border-2 bg-white flex flex-col items-center justify-center flex-shrink-0 shadow-xl animate-in zoom-in-90 fade-in slide-in-from-top-6 duration-300"
+      style={{ borderColor: 'rgba(0,0,0,0.1)', animationDelay: delay, animationFillMode: 'backwards' }}
     >
-      <span className="text-lg sm:text-xl font-black" style={{ color: isRed ? '#dc2626' : '#18181b' }}>
+      <span className="text-lg sm:text-xl font-black leading-none" style={{ color: isRed ? '#dc2626' : '#18181b' }}>
         {card.rank}
       </span>
-      <span className="text-lg sm:text-xl" style={{ color: isRed ? '#dc2626' : '#18181b' }}>
+      <span className="text-lg sm:text-xl leading-none mt-0.5" style={{ color: isRed ? '#dc2626' : '#18181b' }}>
         {card.suit}
       </span>
     </div>
@@ -79,6 +86,32 @@ export default function BlackjackPage() {
   const [outcome, setOutcome] = useState<string | null>(null)
   const [payout, setPayout] = useState(0)
   const [busy, setBusy] = useState(false)
+
+  // Sayfa açıldığında yarım kalmış bir el var mı kontrol et (yenileme/çıkış koruması)
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    fetch('/api/games/blackjack/active')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data.active) return
+        const a = data.active
+        setGamePlayId(a.gamePlayId)
+        setBetAmount(a.betAmount)
+        setPlayerHand(a.playerHand)
+        setDealerHand([a.dealerUpcard])
+        setDealerHidden(true)
+        setPlayerValue(a.playerValue)
+        setCanDouble(a.canDouble)
+        setStatus('playing')
+        toast.info('Yarım kalan elin kaldığı yerden devam ediyor')
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
 
   const deal = useCallback(async () => {
     if (!user) {
@@ -179,11 +212,11 @@ export default function BlackjackPage() {
   }
 
   return (
+    <GameGate gameType="blackjack">
     <div className="max-w-3xl mx-auto">
       <PageHeader
         icon={Spade}
         title="Blackjack"
-        subtitle="21'i geç, dealer'ı yen"
         action={
           <Link href="/oyunlar" className="text-sm font-medium flex items-center gap-1" style={{ color: theme.colors.textMuted }}>
             <ChevronLeft className="w-4 h-4" /> Oyunlar
@@ -192,26 +225,50 @@ export default function BlackjackPage() {
       />
 
       <div
-        className="rounded-2xl border p-6"
+        className="rounded-2xl border p-6 relative overflow-hidden"
         style={{
-          background: 'radial-gradient(ellipse at center, #14532d 0%, #052e16 100%)',
+          background: 'radial-gradient(ellipse at top, #166534 0%, #052e16 65%, #021a0c 100%)',
           borderColor: hexToRgba(theme.colors.border, 0.5),
+          boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5)',
         }}
       >
+        {/* Masa üstü ince çizgi deseni (felt dokusu hissi) */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.06]"
+          style={{ background: 'repeating-radial-gradient(circle at center, #fff 0px, transparent 2px, transparent 40px)' }}
+        />
+
+        {betAmount > 0 && status !== 'idle' && (
+          <div className="relative flex justify-center mb-4">
+            <div
+              className="w-11 h-11 rounded-full border-2 border-white/40 flex items-center justify-center text-[11px] font-black text-white shadow-lg"
+              style={{ background: 'radial-gradient(circle at 35% 30%, #fbbf24, #b45309)' }}
+              title="Masadaki bahis"
+            >
+              {betAmount >= 1000 ? `${Math.round(betAmount / 1000)}k` : betAmount}
+            </div>
+          </div>
+        )}
+
         {/* Dealer eli */}
-        <div className="mb-6">
+        <div className="relative mb-6">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-white/70">Dealer</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-white/60">Dealer</span>
             {dealerValue && !dealerHidden && (
-              <span className="text-sm font-bold text-white">{dealerValue.total}</span>
+              <span className="text-sm font-bold text-white bg-white/10 px-2 py-0.5 rounded-full">{dealerValue.total}</span>
             )}
           </div>
           <div className="flex flex-wrap gap-1.5 sm:gap-2 min-h-[6rem] sm:min-h-[7rem] items-center">
             {status === 'idle' ? (
-              <div className="text-white/40 text-sm">Eli başlatmak için bahis koy</div>
+              <div className="text-white/30 text-sm">Eli başlatmak için bahis koy</div>
             ) : (
               dealerHand.map((c, i) => (
-                <CardView key={i} card={c} hidden={dealerHidden && i === 1} />
+                <CardView
+                  key={`dealer-${i}-${i === 1 ? dealerHidden : 'x'}`}
+                  card={c}
+                  hidden={dealerHidden && i === 1}
+                  index={i}
+                />
               ))
             )}
           </div>
@@ -220,10 +277,11 @@ export default function BlackjackPage() {
         {/* Sonuç banner */}
         {outcome && (
           <div
-            className="text-center font-bold py-2.5 rounded-xl mb-4 animate-in fade-in slide-in-from-top-2"
+            className="relative text-center font-bold py-2.5 rounded-xl mb-4 animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-300"
             style={{
               backgroundColor: hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.2),
               color: OUTCOME_LABELS[outcome]?.color || '#fff',
+              boxShadow: `0 4px 20px ${hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.25)}`,
             }}
           >
             {OUTCOME_LABELS[outcome]?.text}
@@ -232,14 +290,18 @@ export default function BlackjackPage() {
         )}
 
         {/* Oyuncu eli */}
-        <div className="mb-2">
+        <div className="relative mb-2">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-white/70">Sen</span>
-            {playerValue && <span className="text-sm font-bold text-white">{playerValue.total}{playerValue.isSoft ? ' (soft)' : ''}</span>}
+            <span className="text-xs font-bold uppercase tracking-widest text-white/60">Sen</span>
+            {playerValue && (
+              <span className="text-sm font-bold text-white bg-white/10 px-2 py-0.5 rounded-full">
+                {playerValue.total}{playerValue.isSoft ? ' (soft)' : ''}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-1.5 sm:gap-2 min-h-[6rem] sm:min-h-[7rem] items-center">
             {playerHand.map((c, i) => (
-              <CardView key={i} card={c} />
+              <CardView key={`player-${i}`} card={c} index={i} />
             ))}
           </div>
         </div>
@@ -298,5 +360,6 @@ export default function BlackjackPage() {
         )}
       </div>
     </div>
+    </GameGate>
   )
 }
