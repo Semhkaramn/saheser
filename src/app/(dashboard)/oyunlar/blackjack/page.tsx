@@ -7,7 +7,7 @@ import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
 import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
-import { Spade, ChevronLeft, Wallet } from 'lucide-react'
+import { Spade, ChevronLeft, Wallet, Plus, Hand, Copy } from 'lucide-react'
 import GameGate from '@/components/games/GameGate'
 
 interface Card {
@@ -31,40 +31,66 @@ const OUTCOME_LABELS: Record<string, { text: string; color: string }> = {
 }
 
 function CardView({ card, hidden, index = 0, justRevealed = false }: { card?: Card; hidden?: boolean; index?: number; justRevealed?: boolean }) {
-  const { theme } = useUserTheme()
   const isRed = card && (card.suit === '♥' || card.suit === '♦')
-  const delay = `${index * 130}ms`
+  const delay = `${index * 140}ms`
+  // Gerçek dağıtılmış kartlar gibi hafif, deterministik bir eğiklik (hydration uyumlu - Math.random yok)
+  const tilt = ((index % 3) - 1) * 2.2
 
   if (hidden || !card) {
     return (
       <div
-        className="relative w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-lg border-2 flex items-center justify-center flex-shrink-0 overflow-hidden animate-in fade-in slide-in-from-top-6 duration-300"
+        className="relative w-14 h-20 sm:w-[4.5rem] sm:h-28 rounded-lg border-2 flex items-center justify-center flex-shrink-0 overflow-hidden animate-in fade-in slide-in-from-top-8 zoom-in-95 duration-400"
         style={{
-          background: 'repeating-linear-gradient(135deg, #1e3a8a 0px, #1e3a8a 6px, #1e40af 6px, #1e40af 12px)',
-          borderColor: 'rgba(255,255,255,0.35)',
+          background: 'repeating-linear-gradient(135deg, #7f1d1d 0px, #7f1d1d 5px, #991b1b 5px, #991b1b 10px)',
+          borderColor: '#d4af37',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.4)',
           animationDelay: delay,
           animationFillMode: 'backwards',
+          transform: `rotate(${tilt}deg)`,
         }}
       >
-        <div className="w-7 h-11 sm:w-9 sm:h-14 rounded border-2 border-white/40 flex items-center justify-center">
-          <span className="text-white/50 text-[10px] sm:text-xs font-black">♠</span>
+        <div className="absolute inset-1 rounded border border-white/25" />
+        <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-full border-2 border-white/50 flex items-center justify-center">
+          <span className="text-white/70 text-xs sm:text-sm font-black">♠</span>
         </div>
       </div>
     )
   }
 
+  const suitColor = isRed ? '#dc2626' : '#18181b'
+
   return (
     <div
       key={justRevealed ? 'revealed' : undefined}
-      className="w-12 h-[4.5rem] sm:w-16 sm:h-24 rounded-lg border-2 bg-white flex flex-col items-center justify-center flex-shrink-0 shadow-xl animate-in zoom-in-90 fade-in slide-in-from-top-6 duration-300"
-      style={{ borderColor: 'rgba(0,0,0,0.1)', animationDelay: delay, animationFillMode: 'backwards' }}
+      className="relative w-14 h-20 sm:w-[4.5rem] sm:h-28 rounded-lg border flex-shrink-0 shadow-2xl animate-in zoom-in-90 fade-in slide-in-from-top-8 duration-400"
+      style={{
+        background: 'linear-gradient(160deg, #ffffff, #f1f5f9)',
+        borderColor: 'rgba(0,0,0,0.15)',
+        animationDelay: delay,
+        animationFillMode: 'backwards',
+        transform: `rotate(${tilt}deg)`,
+        boxShadow: '0 6px 14px rgba(0,0,0,0.35)',
+      }}
     >
-      <span className="text-lg sm:text-xl font-black leading-none" style={{ color: isRed ? '#dc2626' : '#18181b' }}>
-        {card.rank}
-      </span>
-      <span className="text-lg sm:text-xl leading-none mt-0.5" style={{ color: isRed ? '#dc2626' : '#18181b' }}>
-        {card.suit}
-      </span>
+      {/* Sol üst köşe indeksi (gerçek iskambil kartı gibi) */}
+      <div className="absolute top-1 left-1.5 flex flex-col items-center leading-none" style={{ color: suitColor }}>
+        <span className="text-xs sm:text-sm font-black">{card.rank}</span>
+        <span className="text-xs sm:text-sm -mt-0.5">{card.suit}</span>
+      </div>
+      {/* Sağ alt köşe indeksi (180° döndürülmüş) */}
+      <div
+        className="absolute bottom-1 right-1.5 flex flex-col items-center leading-none rotate-180"
+        style={{ color: suitColor }}
+      >
+        <span className="text-xs sm:text-sm font-black">{card.rank}</span>
+        <span className="text-xs sm:text-sm -mt-0.5">{card.suit}</span>
+      </div>
+      {/* Ortadaki büyük sembol */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-2xl sm:text-3xl" style={{ color: suitColor }}>
+          {card.suit}
+        </span>
+      </div>
     </div>
   )
 }
@@ -224,85 +250,156 @@ export default function BlackjackPage() {
         }
       />
 
+      {/* Ahşap kasa çerçevesi */}
       <div
-        className="rounded-2xl border p-6 relative overflow-hidden"
+        className="rounded-[2rem] p-2.5"
         style={{
-          background: 'radial-gradient(ellipse at top, #166534 0%, #052e16 65%, #021a0c 100%)',
-          borderColor: hexToRgba(theme.colors.border, 0.5),
-          boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5)',
+          background: 'linear-gradient(160deg, #7c4a24, #4a2c14)',
+          boxShadow: '0 12px 30px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.15)',
         }}
       >
-        {/* Masa üstü ince çizgi deseni (felt dokusu hissi) */}
         <div
-          className="absolute inset-0 pointer-events-none opacity-[0.06]"
-          style={{ background: 'repeating-radial-gradient(circle at center, #fff 0px, transparent 2px, transparent 40px)' }}
-        />
+          className="rounded-[1.6rem] border-2 p-6 relative overflow-hidden"
+          style={{
+            background: 'radial-gradient(ellipse at top, #15803d 0%, #14532d 55%, #052e16 100%)',
+            borderColor: 'rgba(212,175,55,0.4)',
+            boxShadow: 'inset 0 0 70px rgba(0,0,0,0.55)',
+          }}
+        >
+          {/* Masa üstü ince nokta dokusu (felt hissi) */}
+          <div
+            className="absolute inset-0 pointer-events-none opacity-[0.07]"
+            style={{ background: 'repeating-radial-gradient(circle at center, #fff 0px, transparent 2px, transparent 40px)' }}
+          />
 
-        {betAmount > 0 && status !== 'idle' && (
-          <div className="relative flex justify-center mb-4">
-            <div
-              className="w-11 h-11 rounded-full border-2 border-white/40 flex items-center justify-center text-[11px] font-black text-white shadow-lg"
-              style={{ background: 'radial-gradient(circle at 35% 30%, #fbbf24, #b45309)' }}
-              title="Masadaki bahis"
-            >
-              {betAmount >= 1000 ? `${Math.round(betAmount / 1000)}k` : betAmount}
+          {/* Kart destesi (shoe) - sağ üst köşe */}
+          <div className="absolute top-4 right-4 sm:top-5 sm:right-5 flex flex-col items-center gap-0.5 opacity-80">
+            <div className="relative w-8 h-11 sm:w-9 sm:h-12">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="absolute inset-0 rounded border"
+                  style={{
+                    background: 'repeating-linear-gradient(135deg, #7f1d1d 0px, #7f1d1d 4px, #991b1b 4px, #991b1b 8px)',
+                    borderColor: '#d4af37',
+                    transform: `translate(${i * 1.5}px, ${-i * 1.5}px)`,
+                  }}
+                />
+              ))}
             </div>
           </div>
-        )}
 
-        {/* Dealer eli */}
-        <div className="relative mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-widest text-white/60">Dealer</span>
-            {dealerValue && !dealerHidden && (
-              <span className="text-sm font-bold text-white bg-white/10 px-2 py-0.5 rounded-full">{dealerValue.total}</span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5 sm:gap-2 min-h-[6rem] sm:min-h-[7rem] items-center">
-            {status === 'idle' ? (
-              <div className="text-white/30 text-sm">Eli başlatmak için bahis koy</div>
-            ) : (
-              dealerHand.map((c, i) => (
-                <CardView
-                  key={`dealer-${i}-${i === 1 ? dealerHidden : 'x'}`}
-                  card={c}
-                  hidden={dealerHidden && i === 1}
-                  index={i}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Sonuç banner */}
-        {outcome && (
+          {/* Yarım daire bahis çizgisi - gerçek masalardaki oyuncu alanı çizgisi */}
           <div
-            className="relative text-center font-bold py-2.5 rounded-xl mb-4 animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-300"
+            className="absolute left-1/2 -translate-x-1/2 pointer-events-none"
             style={{
-              backgroundColor: hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.2),
-              color: OUTCOME_LABELS[outcome]?.color || '#fff',
-              boxShadow: `0 4px 20px ${hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.25)}`,
+              bottom: '3.2rem',
+              width: '92%',
+              height: '140px',
+              borderTop: '2px dashed rgba(212,175,55,0.25)',
+              borderRadius: '50%',
             }}
-          >
-            {OUTCOME_LABELS[outcome]?.text}
-            {payout > 0 && ` (+${payout} puan)`}
-          </div>
-        )}
+          />
 
-        {/* Oyuncu eli */}
-        <div className="relative mb-2">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-widest text-white/60">Sen</span>
-            {playerValue && (
-              <span className="text-sm font-bold text-white bg-white/10 px-2 py-0.5 rounded-full">
-                {playerValue.total}{playerValue.isSoft ? ' (soft)' : ''}
-              </span>
-            )}
+          {/* Masa yazısı - gerçek blackjack masalarındaki gibi */}
+          <div className="relative text-center mb-4">
+            <span
+              className="text-[10px] sm:text-xs font-bold tracking-[0.2em] uppercase"
+              style={{ color: 'rgba(212,175,55,0.55)' }}
+            >
+              Blackjack Öder 3:2 · Dealer 17'de Durur
+            </span>
           </div>
-          <div className="flex flex-wrap gap-1.5 sm:gap-2 min-h-[6rem] sm:min-h-[7rem] items-center">
-            {playerHand.map((c, i) => (
-              <CardView key={`player-${i}`} card={c} index={i} />
-            ))}
+
+          {betAmount > 0 && status !== 'idle' && (
+            <div className="relative flex justify-center mb-5">
+              <div className="relative w-12 h-12">
+                {[0, 1].map((i) => (
+                  <div
+                    key={i}
+                    className="absolute inset-0 rounded-full border-2"
+                    style={{
+                      borderColor: 'rgba(255,255,255,0.3)',
+                      background: 'radial-gradient(circle at 35% 30%, #fbbf24, #b45309)',
+                      transform: `translateY(${-i * 3}px)`,
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                    }}
+                  />
+                ))}
+                <div
+                  className="absolute inset-0 rounded-full border-2 border-white/40 flex items-center justify-center text-xs font-black text-white"
+                  style={{ background: 'radial-gradient(circle at 35% 30%, #fbbf24, #b45309)' }}
+                  title="Masadaki bahis"
+                >
+                  {betAmount >= 1000 ? `${Math.round(betAmount / 1000)}k` : betAmount}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dealer eli */}
+          <div className="relative mb-7">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-xs font-bold uppercase tracking-widest text-white/60">Dealer</span>
+              {dealerValue && !dealerHidden && (
+                <span
+                  className="text-sm font-black text-white px-2.5 py-1 rounded-full border"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.35)', borderColor: 'rgba(212,175,55,0.4)' }}
+                >
+                  {dealerValue.total}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 sm:gap-3 min-h-[5.5rem] sm:min-h-[7.5rem] items-center">
+              {status === 'idle' ? (
+                <div className="text-white/30 text-sm">Eli başlatmak için bahis koy</div>
+              ) : (
+                dealerHand.map((c, i) => (
+                  <CardView
+                    key={`dealer-${i}-${i === 1 ? dealerHidden : 'x'}`}
+                    card={c}
+                    hidden={dealerHidden && i === 1}
+                    index={i}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Sonuç banner */}
+          {outcome && (
+            <div
+              className="relative text-center font-bold py-3 rounded-xl mb-5 animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-300 border"
+              style={{
+                backgroundColor: hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.15),
+                borderColor: hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.4),
+                color: OUTCOME_LABELS[outcome]?.color || '#fff',
+                boxShadow: `0 4px 20px ${hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.25)}`,
+              }}
+            >
+              {OUTCOME_LABELS[outcome]?.text}
+              {payout > 0 && ` (+${payout} puan)`}
+            </div>
+          )}
+
+          {/* Oyuncu eli */}
+          <div className="relative mb-2">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-xs font-bold uppercase tracking-widest text-white/60">Sen</span>
+              {playerValue && (
+                <span
+                  className="text-sm font-black text-white px-2.5 py-1 rounded-full border"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.35)', borderColor: 'rgba(212,175,55,0.4)' }}
+                >
+                  {playerValue.total}{playerValue.isSoft ? ' (soft)' : ''}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 sm:gap-3 min-h-[5.5rem] sm:min-h-[7.5rem] items-center">
+              {playerHand.map((c, i) => (
+                <CardView key={`player-${i}`} card={c} index={i} />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -344,17 +441,17 @@ export default function BlackjackPage() {
         ) : (
           <div className="grid grid-cols-3 gap-3">
             <ThemedButton variant="secondary" disabled={busy} onClick={() => handleAction('hit')}>
-              Kart Çek
+              <Plus className="w-4 h-4 mr-1" /> Kart Çek
             </ThemedButton>
             <ThemedButton variant="outline" disabled={busy} onClick={() => handleAction('stand')}>
-              Dur
+              <Hand className="w-4 h-4 mr-1" /> Dur
             </ThemedButton>
             <ThemedButton
               variant="secondary"
               disabled={busy || !canDouble || !user || user.points < betAmount}
               onClick={() => handleAction('double')}
             >
-              Double
+              <Copy className="w-4 h-4 mr-1" /> Double
             </ThemedButton>
           </div>
         )}
