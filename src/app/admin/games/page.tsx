@@ -50,6 +50,7 @@ interface GameStat {
   gameType: string
   totalPlays: number
   wins: number
+  pushes: number
   losses: number
   totalBet: number
   totalPayout: number
@@ -219,6 +220,7 @@ export default function AdminGamesPage() {
             <div className="flex items-center gap-3 text-xs" style={{ color: theme.textSecondary }}>
               <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" style={{ color: theme.success }} /> {s.wins}</span>
               <span className="flex items-center gap-1"><TrendingDown className="w-3 h-3" style={{ color: theme.danger }} /> {s.losses}</span>
+              {s.pushes > 0 && <span style={{ color: theme.textMuted }}>{s.pushes} berabere</span>}
               <span>RTP: %{s.rtp.toFixed(1)}</span>
             </div>
             <div className="text-xs mt-1.5" style={{ color: theme.textMuted }}>

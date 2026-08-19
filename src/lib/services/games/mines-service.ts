@@ -117,7 +117,7 @@ export async function revealMinesTile(userId: string, gamePlayId: string, tileIn
 
   const details: MinesDetails = JSON.parse(gamePlay.details || '{}')
 
-  if (tileIndex < 0 || tileIndex >= details.gridSize) {
+  if (!Number.isInteger(tileIndex) || tileIndex < 0 || tileIndex >= details.gridSize) {
     throw new GameError('INVALID_TILE', 'Geçersiz hücre')
   }
   if (details.revealedTiles.includes(tileIndex)) {
@@ -155,10 +155,16 @@ export async function revealMinesTile(userId: string, gamePlayId: string, tileIn
     currentMultiplier: newMultiplier,
   }
 
-  await prisma.gamePlay.update({
-    where: { id: gamePlayId },
+  // Atomik CAS: satırı okuduğumuz ANDAKİ details string'i hâlâ aynıysa güncelle.
+  // Bu sayede iki eşzamanlı istek (ör. iki sekmeden art arda hücre açma) birbirinin
+  // ilerlemesini sessizce ezemez - ikinci istek CONFLICT hatası alır, veri kaybı olmaz.
+  const cas = await prisma.gamePlay.updateMany({
+    where: { id: gamePlayId, result: 'pending', details: gamePlay.details },
     data: { details: JSON.stringify(updatedDetails) },
   })
+  if (cas.count === 0) {
+    throw new GameError('CONFLICT', 'Bu hamle işlenirken oyun durumu değişti, lütfen tekrar dene')
+  }
 
   // Tüm güvenli hücreler açıldıysa otomatik cashout
   if (isBoardCleared) {

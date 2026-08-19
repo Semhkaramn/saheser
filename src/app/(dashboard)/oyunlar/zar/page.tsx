@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
-import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
+import { ThemedButton, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
-import { Dices, ChevronLeft, Wallet, ArrowUpDown } from 'lucide-react'
+import { Dices, ChevronLeft, ArrowUpDown } from 'lucide-react'
 import GameGate from '@/components/games/GameGate'
+import ChipSelector from '@/components/games/ChipSelector'
 
 export default function DicePage() {
   const { theme } = useUserTheme()
@@ -19,8 +20,18 @@ export default function DicePage() {
   const [target, setTarget] = useState(50)
   const [direction, setDirection] = useState<'over' | 'under'>('under')
   const [busy, setBusy] = useState(false)
-  const [lastRoll, setLastRoll] = useState<number | null>(null)
-  const [lastResult, setLastResult] = useState<{ won: boolean; payout: number } | null>(null)
+  const [rolling, setRolling] = useState(false)
+  const [markerPos, setMarkerPos] = useState<number | null>(null)
+  const [transitionMs, setTransitionMs] = useState(700)
+  const [lastResult, setLastResult] = useState<{ won: boolean; payout: number; roll: number } | null>(null)
+
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  useEffect(() => {
+    return () => {
+      timers.current.forEach(clearTimeout)
+    }
+  }, [])
 
   const winChance = direction === 'over' ? 100 - target : target
   const multiplier = useMemo(() => {
@@ -38,25 +49,58 @@ export default function DicePage() {
       toast.error('Geçersiz bahis miktarı')
       return
     }
+
+    timers.current.forEach(clearTimeout)
+    timers.current = []
+
     setBusy(true)
+    setRolling(true)
+    setLastResult(null)
+
+    // Gerçek zar atışı hissi: sunucu cevabı gelene kadar işaretçi hızlıca sekip duruyor
+    const shuffleStops = [22, 78, 35, 65, 45]
+    shuffleStops.forEach((pos, i) => {
+      const t = setTimeout(() => {
+        setTransitionMs(150)
+        setMarkerPos(pos)
+      }, i * 160)
+      timers.current.push(t)
+    })
+
     try {
-      const res = await fetch('/api/games/dice/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ betAmount, target, direction, clientSeed: crypto.randomUUID() }),
-      })
+      const [res] = await Promise.all([
+        fetch('/api/games/dice/play', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ betAmount, target, direction, clientSeed: crypto.randomUUID() }),
+        }),
+        new Promise((resolve) => setTimeout(resolve, shuffleStops.length * 160)), // sekme animasyonunun bitmesini bekle
+      ])
       const data = await res.json()
       if (!res.ok) {
         toast.error(data.error || 'İşlem başarısız')
+        setRolling(false)
+        setBusy(false)
         return
       }
-      setLastRoll(data.roll)
-      setLastResult({ won: data.won, payout: data.payout })
-      await refreshUser()
-      if (data.won) toast.success(`Kazandın! +${data.payout} puan`)
+
+      // Son yerleşim: yavaşlayarak gerçek sonuca iniyor
+      timers.current.forEach(clearTimeout)
+      setTransitionMs(650)
+      setMarkerPos(data.roll)
+
+      const settleTimer = setTimeout(() => {
+        setRolling(false)
+        setBusy(false)
+        setLastResult({ won: data.won, payout: data.payout, roll: data.roll })
+        refreshUser()
+        if (data.won) toast.success(`Kazandın! +${data.payout} puan`)
+        else toast.error('Kaybettin')
+      }, 680)
+      timers.current.push(settleTimer)
     } catch {
       toast.error('Bağlantı hatası')
-    } finally {
+      setRolling(false)
       setBusy(false)
     }
   }, [user, betAmount, target, direction, setShowLoginModal, refreshUser])
@@ -95,20 +139,26 @@ export default function DicePage() {
             className="absolute top-0 bottom-0 w-0.5"
             style={{ left: `${target}%`, backgroundColor: theme.colors.text }}
           />
-          {lastRoll !== null && (
+          {markerPos !== null && (
             <div
-              key={lastRoll}
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center animate-in zoom-in-50 duration-300"
-              style={{ left: `${lastRoll}%` }}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
+              style={{
+                left: `${markerPos}%`,
+                transition: `left ${transitionMs}ms cubic-bezier(0.22, 0.61, 0.36, 1)`,
+              }}
             >
               <div
-                className="px-3 py-1.5 rounded-lg font-bold text-sm shadow-lg"
+                className={`px-3 py-1.5 rounded-lg font-bold text-sm shadow-lg ${rolling ? 'animate-pulse' : ''}`}
                 style={{
-                  backgroundColor: lastResult?.won ? '#22c55e' : '#ef4444',
+                  backgroundColor: rolling ? theme.colors.gradientFrom : lastResult?.won ? '#22c55e' : '#ef4444',
                   color: '#fff',
                 }}
               >
-                {lastRoll.toFixed(2)}
+                {rolling ? (
+                  <Dices className="w-4 h-4 animate-spin" style={{ animationDuration: '0.5s' }} />
+                ) : (
+                  lastResult?.roll.toFixed(2)
+                )}
               </div>
             </div>
           )}
@@ -125,6 +175,7 @@ export default function DicePage() {
             min={2}
             max={98}
             value={target}
+            disabled={busy}
             onChange={(e) => setTarget(Number(e.target.value))}
             className="w-full"
             style={{ accentColor: theme.colors.gradientFrom }}
@@ -134,7 +185,8 @@ export default function DicePage() {
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setDirection('under')}
-            className="py-3 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all"
+            disabled={busy}
+            className="py-3 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             style={{
               borderColor: direction === 'under' ? theme.colors.gradientFrom : hexToRgba(theme.colors.border, 0.5),
               backgroundColor: direction === 'under' ? hexToRgba(theme.colors.gradientFrom, 0.15) : 'transparent',
@@ -145,7 +197,8 @@ export default function DicePage() {
           </button>
           <button
             onClick={() => setDirection('over')}
-            className="py-3 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all"
+            disabled={busy}
+            className="py-3 rounded-xl border-2 font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             style={{
               borderColor: direction === 'over' ? theme.colors.gradientFrom : hexToRgba(theme.colors.border, 0.5),
               backgroundColor: direction === 'over' ? hexToRgba(theme.colors.gradientFrom, 0.15) : 'transparent',
@@ -156,42 +209,21 @@ export default function DicePage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 items-end">
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wide mb-2 block" style={{ color: theme.colors.textMuted }}>
-              Bahis
-            </label>
-            <ThemedInput
-              type="number"
-              value={betAmount}
-              onChange={(e) => setBetAmount(Math.max(0, Number(e.target.value)))}
-              className="font-bold"
-            />
+        <div className="text-center">
+          <div className="text-xs font-semibold uppercase tracking-wide mb-0.5" style={{ color: theme.colors.textMuted }}>
+            Kazanırsan
           </div>
-          <div className="text-right">
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: theme.colors.textMuted }}>
-              Kazanırsan
-            </div>
-            <div className="text-lg font-bold" style={{ color: theme.colors.text }}>
-              {potentialPayout.toLocaleString('tr-TR')} <span className="text-sm font-normal" style={{ color: theme.colors.textMuted }}>({multiplier.toFixed(2)}×)</span>
-            </div>
+          <div className="text-lg font-bold" style={{ color: theme.colors.text }}>
+            {potentialPayout.toLocaleString('tr-TR')} <span className="text-sm font-normal" style={{ color: theme.colors.textMuted }}>({multiplier.toFixed(2)}×)</span>
           </div>
         </div>
 
-        {user && (
-          <div className="flex items-center justify-between text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: hexToRgba(theme.colors.backgroundSecondary, 0.6) }}>
-            <span className="flex items-center gap-1.5" style={{ color: theme.colors.textMuted }}>
-              <Wallet className="w-3.5 h-3.5" /> Bakiye
-            </span>
-            <span className="font-bold" style={{ color: theme.colors.text }}>
-              {user.points.toLocaleString('tr-TR')}
-            </span>
-          </div>
-        )}
-
-        <ThemedButton className="w-full" size="lg" disabled={busy} onClick={play}>
-          {busy ? 'Atılıyor...' : 'Zarı At'}
-        </ThemedButton>
+        <div className="flex flex-col items-center gap-4">
+          <ChipSelector value={betAmount} onChange={setBetAmount} max={user?.points} disabled={busy} />
+          <ThemedButton className="w-full" size="lg" disabled={busy || betAmount <= 0} onClick={play}>
+            {busy ? 'Atılıyor...' : 'Zarı At'}
+          </ThemedButton>
+        </div>
       </div>
     </div>
     </GameGate>

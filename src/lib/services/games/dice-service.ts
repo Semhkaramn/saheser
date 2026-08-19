@@ -37,7 +37,7 @@ export async function playDice(params: {
   const minTarget = settings.extraSettings.minTarget ?? 2
   const maxTarget = settings.extraSettings.maxTarget ?? 98
 
-  if (target < minTarget || target > maxTarget) {
+  if (!Number.isFinite(target) || target < minTarget || target > maxTarget) {
     throw new GameError('INVALID_TARGET', `Hedef ${minTarget}-${maxTarget} arasında olmalı`)
   }
 

@@ -11,23 +11,32 @@ export async function GET(request: NextRequest) {
 
     const stats = await Promise.all(
       gameTypes.map(async (gameType) => {
-        const [aggregate, totalPlays, wins] = await Promise.all([
+        const [aggregate, totalPlays, winsRaw, pushes] = await Promise.all([
           prisma.gamePlay.aggregate({
             where: { gameType, result: { not: 'pending' } },
             _sum: { betAmount: true, payout: true },
           }),
           prisma.gamePlay.count({ where: { gameType, result: { not: 'pending' } } }),
           prisma.gamePlay.count({ where: { gameType, result: { in: ['win', 'cashout'] } } }),
+          // Blackjack'te berabere (push) de 'cashout' olarak kaydedilir ama bu bir kazanç
+          // DEĞİLDİR - istatistiklerde yanlışlıkla "kazanç" sayılmaması için ayrıca düşülür.
+          gameType === 'blackjack'
+            ? prisma.gamePlay.count({
+                where: { gameType: 'blackjack', result: 'cashout', details: { contains: '"outcome":"push"' } },
+              })
+            : Promise.resolve(0),
         ])
 
         const totalBet = aggregate._sum.betAmount || 0
         const totalPayout = aggregate._sum.payout || 0
+        const wins = winsRaw - pushes
 
         return {
           gameType,
           totalPlays,
           wins,
-          losses: totalPlays - wins,
+          pushes,
+          losses: totalPlays - wins - pushes,
           totalBet,
           totalPayout,
           netHouseResult: totalBet - totalPayout, // pozitif = site lehine, negatif = kullanıcılar lehine

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
-import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
+import { ThemedButton, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
 import { CircleDot, ChevronLeft, Wallet, Trash2 } from 'lucide-react'
 import GameGate from '@/components/games/GameGate'
@@ -94,6 +94,7 @@ export default function RoulettePage() {
       const data = await res.json()
       if (!res.ok) {
         toast.error(data.error || 'İşlem başarısız')
+        setBusy(false)
         return
       }
 
@@ -109,6 +110,7 @@ export default function RoulettePage() {
         setSpinResult(data.spinResult)
         setSpinning(false)
         setZooming(false)
+        setBusy(false)
         const resultMap: Record<string, { won: boolean; payout: number }> = {}
         for (const br of data.betResults) {
           const key = `${br.type}-${br.value ?? ''}`
@@ -123,8 +125,7 @@ export default function RoulettePage() {
       setTimeout(() => setBets([]), 4400)
     } catch {
       toast.error('Bağlantı hatası')
-    } finally {
-      setTimeout(() => setBusy(false), 4300)
+      setBusy(false)
     }
   }, [user, bets, totalBet, setShowLoginModal, refreshUser])
 
@@ -167,7 +168,7 @@ export default function RoulettePage() {
                 : 'relative transition-transform duration-500 ease-out'
             }
           >
-            <RouletteWheel spinning={spinning} ballRotation={ballRotation} winningNumber={spinResult} size={220} />
+            <RouletteWheel spinning={spinning} ballRotation={ballRotation} winningNumber={spinResult} size={250} />
           </div>
           {spinResult !== null && !spinning && (
             <div
@@ -224,7 +225,8 @@ export default function RoulettePage() {
             <div className="flex items-stretch gap-2 mb-1 min-w-[520px] sm:min-w-0">
               <button
                 onClick={() => addBet('straight', 0, '0')}
-                className="w-10 rounded-lg border-2 font-bold flex-shrink-0 relative"
+                disabled={busy}
+                className="w-10 rounded-lg border-2 font-bold flex-shrink-0 relative disabled:opacity-50"
                 style={{
                   borderColor: bets.find((b) => b.key === 'straight-0') ? theme.colors.gradientFrom : hexToRgba(theme.colors.border, 0.5),
                   backgroundColor: hexToRgba('#22c55e', 0.15),
@@ -245,7 +247,8 @@ export default function RoulettePage() {
                     <button
                       key={n}
                       onClick={() => addBet('straight', n, String(n))}
-                      className="relative aspect-square min-w-[30px] rounded-md text-[11px] sm:text-xs font-bold border"
+                      disabled={busy}
+                      className="relative aspect-square min-w-[30px] rounded-md text-[11px] sm:text-xs font-bold border disabled:opacity-50"
                       style={{
                         backgroundColor: RED_NUMBERS.has(n) ? hexToRgba('#dc2626', 0.2) : hexToRgba('#18181b', 0.3),
                         borderColor: placed ? theme.colors.gradientFrom : 'transparent',
@@ -273,7 +276,8 @@ export default function RoulettePage() {
                 <button
                   key={d.type}
                   onClick={() => addBet(d.type, undefined, d.label)}
-                  className="relative py-2 rounded-lg border text-xs font-semibold"
+                  disabled={busy}
+                  className="relative py-2 rounded-lg border text-xs font-semibold disabled:opacity-50"
                   style={{
                     borderColor: placed ? theme.colors.gradientFrom : hexToRgba(theme.colors.border, 0.5),
                     color: theme.colors.textSecondary,
@@ -294,7 +298,8 @@ export default function RoulettePage() {
                 <button
                   key={b.type}
                   onClick={() => addBet(b.type, undefined, b.label)}
-                  className="relative py-2.5 rounded-lg border text-xs font-bold"
+                  disabled={busy}
+                  className="relative py-2.5 rounded-lg border text-xs font-bold disabled:opacity-50"
                   style={{
                     borderColor: placed ? theme.colors.gradientFrom : hexToRgba(theme.colors.border, 0.5),
                     backgroundColor: b.color ? hexToRgba(b.color, 0.2) : 'transparent',

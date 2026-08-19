@@ -5,10 +5,11 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
-import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
+import { ThemedButton, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
-import { Bomb, Gem, ChevronLeft, Minus, Plus, Wallet, TrendingUp } from 'lucide-react'
+import { Bomb, Gem, ChevronLeft, Wallet, TrendingUp } from 'lucide-react'
 import GameGate from '@/components/games/GameGate'
+import ChipSelector from '@/components/games/ChipSelector'
 
 const GRID_SIZE = 25
 
@@ -37,6 +38,11 @@ export default function MinesPage() {
   const potentialPayout = Math.floor(betAmount * multiplier)
 
   // Sayfa açıldığında yarım kalmış bir el var mı kontrol et (yenileme/çıkış koruması)
+  // NOT: bağımlılık olarak `user` nesnesinin tamamı değil `user?.id` kullanılıyor.
+  // Çünkü refreshUser() her çağrıldığında (her oyun hamlesinden sonra) `user` YENİ bir
+  // nesne referansı olarak set ediliyor - eğer bağımlılık `user` olsaydı bu effect her
+  // hamleden sonra tekrar tetiklenir, canlı oyunun ortasında sunucudan tekrar "aktif el"
+  // sorgusu atıp state'i ezebilir ve yanlış zamanda "yarım kalan el" bildirimini gösterirdi.
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -58,15 +64,8 @@ export default function MinesPage() {
     return () => {
       cancelled = true
     }
-  }, [user])
-
-  const resetBoard = () => {
-    setTiles(Array(GRID_SIZE).fill('hidden'))
-    setMinePositions([])
-    setMultiplier(1)
-    setGame(null)
-    setLastResult(null)
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   const startGame = useCallback(async () => {
     if (!user) {
@@ -216,55 +215,10 @@ export default function MinesPage() {
           style={{ backgroundColor: hexToRgba(theme.colors.card, 0.85), borderColor: hexToRgba(theme.colors.border, 0.5) }}
         >
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide mb-2 block" style={{ color: theme.colors.textMuted }}>
+            <label className="text-xs font-semibold uppercase tracking-wide mb-2 block text-center" style={{ color: theme.colors.textMuted }}>
               Bahis Miktarı
             </label>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setBetAmount((v) => Math.max(10, v - 10))}
-                disabled={!!game}
-                className="w-9 h-9 rounded-lg border flex items-center justify-center disabled:opacity-40"
-                style={{ borderColor: hexToRgba(theme.colors.border, 0.6) }}
-              >
-                <Minus className="w-4 h-4" style={{ color: theme.colors.text }} />
-              </button>
-              <ThemedInput
-                type="number"
-                value={betAmount}
-                disabled={!!game}
-                onChange={(e) => setBetAmount(Math.max(0, Number(e.target.value)))}
-                className="text-center font-bold"
-              />
-              <button
-                onClick={() => setBetAmount((v) => v + 10)}
-                disabled={!!game}
-                className="w-9 h-9 rounded-lg border flex items-center justify-center disabled:opacity-40"
-                style={{ borderColor: hexToRgba(theme.colors.border, 0.6) }}
-              >
-                <Plus className="w-4 h-4" style={{ color: theme.colors.text }} />
-              </button>
-            </div>
-            <div className="flex gap-1.5 mt-2">
-              {[0.5, 2].map((mult) => (
-                <button
-                  key={mult}
-                  disabled={!!game}
-                  onClick={() => setBetAmount((v) => Math.max(10, Math.floor(v * mult)))}
-                  className="flex-1 text-xs font-semibold py-1.5 rounded-lg border disabled:opacity-40"
-                  style={{ borderColor: hexToRgba(theme.colors.border, 0.6), color: theme.colors.textSecondary }}
-                >
-                  {mult === 0.5 ? '½' : '2×'}
-                </button>
-              ))}
-              <button
-                disabled={!!game || !user}
-                onClick={() => user && setBetAmount(user.points)}
-                className="flex-1 text-xs font-semibold py-1.5 rounded-lg border disabled:opacity-40"
-                style={{ borderColor: hexToRgba(theme.colors.border, 0.6), color: theme.colors.textSecondary }}
-              >
-                Max
-              </button>
-            </div>
+            <ChipSelector value={betAmount} onChange={setBetAmount} max={user?.points} disabled={!!game} />
           </div>
 
           <div>

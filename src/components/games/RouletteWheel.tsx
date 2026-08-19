@@ -17,10 +17,14 @@ function pocketColor(n: number): string {
   return RED_NUMBERS.has(n) ? '#b91c1c' : '#18181b'
 }
 
-/** Bir sayının çark üzerindeki merkez açısını döndürür (0deg = üst / saat 12, saat yönünde artar) */
+/** Bir sayının çark üzerindeki merkez açısını döndürür (0deg = üst / saat 12, saat yönünde artar).
+ *  ÖNEMLİ: Sayı etiketleri her dilimin ORTASINA çizildiği için (bkz. aşağıdaki `mid` hesabı),
+ *  topun gerçekten o sayının üzerine inmesi için burada da dilimin ORTA açısı döndürülmeli.
+ *  Aksi halde top görsel olarak yarım dilim kayık bir yere iner ve kazanan sayıyla top
+ *  arasında görsel bir tutarsızlık oluşur (top farklı bir sayıda duruyormuş gibi görünür). */
 export function angleForNumber(n: number): number {
   const idx = WHEEL_ORDER.indexOf(n)
-  return idx >= 0 ? idx * SECTOR_ANGLE : 0
+  return idx >= 0 ? idx * SECTOR_ANGLE + SECTOR_ANGLE / 2 : 0
 }
 
 function polar(cx: number, cy: number, r: number, angleDeg: number): [number, number] {
@@ -64,6 +68,8 @@ export default function RouletteWheel({ spinning, ballRotation, winningNumber, s
     []
   )
 
+  const winningSector = !spinning && winningNumber !== null ? sectors.find((s) => s.num === winningNumber) : undefined
+
   return (
     <div className="relative" style={{ width: size, height: size }}>
       {/* Dış ahşap kasa efekti */}
@@ -91,6 +97,13 @@ export default function RouletteWheel({ spinning, ballRotation, winningNumber, s
             <stop offset="0%" stopColor="#3f3f46" />
             <stop offset="100%" stopColor="#09090b" />
           </radialGradient>
+          <filter id="winGlow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
         {sectors.map((s) => (
@@ -100,7 +113,7 @@ export default function RouletteWheel({ spinning, ballRotation, winningNumber, s
               x={s.tx}
               y={s.ty}
               fill="#fff"
-              fontSize={s.num === winningNumber && !spinning ? 11 : 9}
+              fontSize={s.num === winningNumber && !spinning ? 12 : 9}
               fontWeight={800}
               textAnchor="middle"
               dominantBaseline="middle"
@@ -111,6 +124,19 @@ export default function RouletteWheel({ spinning, ballRotation, winningNumber, s
             </text>
           </g>
         ))}
+
+        {/* Kazanan dilim vurgusu - top nereye inerse insin, hangi sayının kazandığı
+            bu parlak çerçeveyle kesin şekilde belli olur (belirsizlik kalmaz) */}
+        {winningSector && (
+          <path
+            d={sectorPath(cx, cy, rOuter, rInner, winningSector.start, winningSector.end)}
+            fill="none"
+            stroke="#fef08a"
+            strokeWidth={3}
+            filter="url(#winGlow)"
+            className="animate-pulse"
+          />
+        )}
 
         {/* Merkez göbek */}
         <circle cx={cx} cy={cy} r={rInner - 2} fill="url(#hubGradient)" stroke="#d4af37" strokeWidth={1.5} />
@@ -134,13 +160,13 @@ export default function RouletteWheel({ spinning, ballRotation, winningNumber, s
         <div
           className="absolute rounded-full"
           style={{
-            width: 9,
-            height: 9,
+            width: 6.5,
+            height: 6.5,
             top: `calc(50% - ${(rBallTrack / 110) * (size / 2)}px)`,
             left: '50%',
             transform: 'translate(-50%, -50%)',
             background: 'radial-gradient(circle at 35% 30%, #fff, #cbd5e1 60%, #64748b)',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.6)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.7), 0 0 4px rgba(255,255,255,0.5)',
           }}
         />
       </div>
@@ -148,11 +174,12 @@ export default function RouletteWheel({ spinning, ballRotation, winningNumber, s
       {/* Merkez sonuç göstergesi */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div
-          className="w-12 h-12 rounded-full flex items-center justify-center font-black text-base border-2"
+          className="w-14 h-14 rounded-full flex items-center justify-center font-black text-lg border-2 transition-all duration-300"
           style={{
-            backgroundColor: winningNumber !== null ? pocketColor(winningNumber) : '#18181b',
+            backgroundColor: winningNumber !== null && !spinning ? pocketColor(winningNumber) : '#18181b',
             borderColor: '#d4af37',
             color: '#fff',
+            boxShadow: winningNumber !== null && !spinning ? '0 0 16px rgba(254,240,138,0.6)' : undefined,
           }}
         >
           {winningNumber !== null && !spinning ? winningNumber : ''}

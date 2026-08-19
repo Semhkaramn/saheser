@@ -187,11 +187,19 @@ export async function placeBetAndResolveInstant(params: {
     if (user.points < betAmount) throw new GameError('INSUFFICIENT_POINTS', 'Yetersiz puan bakiyesi')
 
     const netChange = payout - betAmount
-    const updatedUser = await tx.user.update({
-      where: { id: userId },
-      data: { points: { increment: netChange } }, // kayıpta negatif, kazançta net pozitif/negatif fark
-      select: { points: true },
+
+    // Atomik "compare-and-swap": bakiye yeterliliği kontrolü ile düşme/ekleme işlemi
+    // AYNI koşullu UPDATE ifadesinde yapılır (points >= betAmount WHERE koşulunda).
+    // Aksi halde iki eşzamanlı istek (çift tıklama/çoklu sekme) ikisi de "yeterli bakiye"
+    // okuyup ikisi de düşebilir ve kullanıcının bakiyesi eksiye düşebilir.
+    const cas = await tx.user.updateMany({
+      where: { id: userId, points: { gte: betAmount }, isBanned: false },
+      data: { points: { increment: netChange } },
     })
+    if (cas.count === 0) {
+      throw new GameError('INSUFFICIENT_POINTS', 'Yetersiz puan bakiyesi')
+    }
+    const updatedUser = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { points: true } })
 
     const finalPlay = await tx.gamePlay.create({
       data: {
@@ -288,10 +296,16 @@ export async function placeBet(params: {
     if (user.isBanned) throw new GameError('USER_BANNED', 'Hesabınız kısıtlanmış')
     if (user.points < betAmount) throw new GameError('INSUFFICIENT_POINTS', 'Yetersiz puan bakiyesi')
 
-    await tx.user.update({
-      where: { id: userId },
+    // Atomik "compare-and-swap": bkz. placeBetAndResolveInstant'taki açıklama -
+    // bakiye kontrolü ile düşme işlemi aynı koşullu UPDATE'te yapılır, eksiye düşme
+    // riskini (çift tıklama/çoklu sekme) ortadan kaldırır.
+    const cas = await tx.user.updateMany({
+      where: { id: userId, points: { gte: betAmount }, isBanned: false },
       data: { points: { decrement: betAmount } },
     })
+    if (cas.count === 0) {
+      throw new GameError('INSUFFICIENT_POINTS', 'Yetersiz puan bakiyesi')
+    }
 
     const gamePlay = await tx.gamePlay.create({
       data: {
@@ -319,6 +333,14 @@ export async function placeBet(params: {
 /**
  * Açık (pending) bir GamePlay kaydını "win" / "lose" / "cashout" olarak kapatır
  * ve kazanılan puanı (varsa) kullanıcıya ekler. Her durumda kalıcı log bırakır.
+ *
+ * ÖNEMLİ (yarış durumu / race condition koruması): "pending mi?" kontrolü ile
+ * asıl güncelleme AYNI atomik veritabanı ifadesinde (updateMany + WHERE result='pending')
+ * yapılır. Aksi halde iki eşzamanlı istek (ör. iki sekmeden hızlı çift tıklama)
+ * ikisi de "hala pending" okuyup ikisi de puan kredilendirebilir (çift ödeme açığı).
+ * updateMany'nin WHERE koşulu veritabanı seviyesinde atomik olduğu için, sadece
+ * İLK isteğin satırı gerçekten güncellemesi garanti edilir; ikinci istek count=0
+ * görüp güvenle reddedilir.
  */
 export async function resolveGamePlay(params: {
   gamePlayId: string
@@ -340,6 +362,29 @@ export async function resolveGamePlay(params: {
       throw new GameError('ALREADY_RESOLVED', 'Bu el zaten sonuçlandı')
     }
 
+    const mergedDetails = details
+      ? JSON.stringify({ ...(gamePlay.details ? JSON.parse(gamePlay.details) : {}), ...details })
+      : gamePlay.details
+
+    // Atomik "compare-and-swap": WHERE koşuluna result:'pending' eklenerek,
+    // sadece hâlâ pending olan satır güncellenir. count===0 ise başka bir istek
+    // bu arada eli çoktan sonuçlandırmış demektir.
+    const cas = await tx.gamePlay.updateMany({
+      where: { id: gamePlayId, result: 'pending' },
+      data: {
+        result,
+        payout,
+        netChange: payout - gamePlay.betAmount,
+        multiplier: multiplier ?? null,
+        details: mergedDetails,
+        resolvedAt: turkeyNow,
+      },
+    })
+
+    if (cas.count === 0) {
+      throw new GameError('ALREADY_RESOLVED', 'Bu el zaten sonuçlandı')
+    }
+
     let newPoints
     if (payout > 0) {
       const user = await tx.user.update({
@@ -353,21 +398,7 @@ export async function resolveGamePlay(params: {
       newPoints = user?.points ?? 0
     }
 
-    const mergedDetails = details
-      ? JSON.stringify({ ...(gamePlay.details ? JSON.parse(gamePlay.details) : {}), ...details })
-      : gamePlay.details
-
-    const finalPlay = await tx.gamePlay.update({
-      where: { id: gamePlayId },
-      data: {
-        result,
-        payout,
-        netChange: payout - gamePlay.betAmount,
-        multiplier: multiplier ?? null,
-        details: mergedDetails,
-        resolvedAt: turkeyNow,
-      },
-    })
+    const finalPlay = await tx.gamePlay.findUniqueOrThrow({ where: { id: gamePlayId } })
 
     if (payout > 0) {
       await tx.pointHistory.create({

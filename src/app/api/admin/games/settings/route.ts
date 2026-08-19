@@ -31,6 +31,25 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Geçersiz oyun türü' }, { status: 400 })
     }
 
+    // Sayısal alanlar için NaN/Infinity ve mantıksız değer koruması. Bu kontroller
+    // olmadan (ör. bozuk bir istekle) minBet=NaN kaydedilebilir, bu da tüm bahis
+    // limitlerini etkisiz hale getirir (NaN ile yapılan her karşılaştırma false döner).
+    if (minBet !== undefined && (typeof minBet !== 'number' || !Number.isFinite(minBet) || minBet < 0)) {
+      return NextResponse.json({ error: 'Geçersiz minimum bahis' }, { status: 400 })
+    }
+    if (maxBet !== undefined && (typeof maxBet !== 'number' || !Number.isFinite(maxBet) || maxBet < 0)) {
+      return NextResponse.json({ error: 'Geçersiz maksimum bahis' }, { status: 400 })
+    }
+    if (typeof minBet === 'number' && typeof maxBet === 'number' && minBet > maxBet) {
+      return NextResponse.json({ error: 'Minimum bahis, maksimum bahisten büyük olamaz' }, { status: 400 })
+    }
+    if (
+      houseEdgePercent !== undefined &&
+      (typeof houseEdgePercent !== 'number' || !Number.isFinite(houseEdgePercent) || houseEdgePercent < 0 || houseEdgePercent > 50)
+    ) {
+      return NextResponse.json({ error: 'House edge %0-50 arasında olmalı' }, { status: 400 })
+    }
+
     const updated = await prisma.gameSettings.upsert({
       where: { gameType },
       update: {

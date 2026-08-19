@@ -93,7 +93,7 @@ export async function playRoulette(params: {
     if (!Number.isInteger(bet.amount) || bet.amount <= 0) {
       throw new GameError('INVALID_BET', 'Geçersiz bahis miktarı')
     }
-    if (bet.type === 'straight' && (bet.value === undefined || bet.value < 0 || bet.value > 36)) {
+    if (bet.type === 'straight' && (bet.value === undefined || !Number.isInteger(bet.value) || bet.value < 0 || bet.value > 36)) {
       throw new GameError('INVALID_STRAIGHT_VALUE', 'Geçersiz sayı seçimi (0-36)')
     }
   }

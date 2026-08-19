@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useUserTheme } from '@/components/providers/user-theme-provider'
 import { useAuth, useAuthActions } from '@/components/providers/auth-provider'
-import { ThemedButton, ThemedInput, hexToRgba } from '@/components/ui/themed'
+import { ThemedButton, hexToRgba } from '@/components/ui/themed'
 import PageHeader from '@/components/PageHeader'
-import { Spade, ChevronLeft, Wallet, Plus, Hand, Copy } from 'lucide-react'
+import { Spade, ChevronLeft, Plus, Hand, Copy } from 'lucide-react'
 import GameGate from '@/components/games/GameGate'
+import ChipSelector from '@/components/games/ChipSelector'
 
 interface Card {
   rank: string
@@ -30,23 +31,40 @@ const OUTCOME_LABELS: Record<string, { text: string; color: string }> = {
   dealer_win: { text: 'Dealer kazandı', color: '#ef4444' },
 }
 
+const WIN_OUTCOMES = new Set(['player_blackjack', 'dealer_bust', 'player_win'])
+const LOSE_OUTCOMES = new Set(['dealer_blackjack', 'player_bust', 'dealer_win'])
+
+function announceOutcome(outcome: string, payout: number) {
+  const label = OUTCOME_LABELS[outcome]?.text || outcome
+  if (WIN_OUTCOMES.has(outcome)) {
+    toast.success(`${label} · +${payout} puan`)
+  } else if (LOSE_OUTCOMES.has(outcome)) {
+    toast.error(label)
+  } else {
+    toast.info(label)
+  }
+}
+
 function CardView({ card, hidden, index = 0, justRevealed = false }: { card?: Card; hidden?: boolean; index?: number; justRevealed?: boolean }) {
   const isRed = card && (card.suit === '♥' || card.suit === '♦')
-  const delay = `${index * 140}ms`
+  const delay = `${index * 160}ms`
   // Gerçek dağıtılmış kartlar gibi hafif, deterministik bir eğiklik (hydration uyumlu - Math.random yok)
   const tilt = ((index % 3) - 1) * 2.2
+  const dealStyle: CSSProperties = {
+    ['--bj-tilt' as any]: `${tilt}deg`,
+    animation: 'bjDealFromShoe 0.55s cubic-bezier(0.16, 0.85, 0.3, 1) both',
+    animationDelay: delay,
+  }
 
   if (hidden || !card) {
     return (
       <div
-        className="relative w-14 h-20 sm:w-[4.5rem] sm:h-28 rounded-lg border-2 flex items-center justify-center flex-shrink-0 overflow-hidden animate-in fade-in slide-in-from-top-8 zoom-in-95 duration-400"
+        className="relative w-14 h-20 sm:w-[4.5rem] sm:h-28 rounded-lg border-2 flex items-center justify-center flex-shrink-0 overflow-hidden"
         style={{
           background: 'repeating-linear-gradient(135deg, #7f1d1d 0px, #7f1d1d 5px, #991b1b 5px, #991b1b 10px)',
           borderColor: '#d4af37',
           boxShadow: '0 4px 10px rgba(0,0,0,0.4)',
-          animationDelay: delay,
-          animationFillMode: 'backwards',
-          transform: `rotate(${tilt}deg)`,
+          ...dealStyle,
         }}
       >
         <div className="absolute inset-1 rounded border border-white/25" />
@@ -62,14 +80,12 @@ function CardView({ card, hidden, index = 0, justRevealed = false }: { card?: Ca
   return (
     <div
       key={justRevealed ? 'revealed' : undefined}
-      className="relative w-14 h-20 sm:w-[4.5rem] sm:h-28 rounded-lg border flex-shrink-0 shadow-2xl animate-in zoom-in-90 fade-in slide-in-from-top-8 duration-400"
+      className="relative w-14 h-20 sm:w-[4.5rem] sm:h-28 rounded-lg border flex-shrink-0 shadow-2xl"
       style={{
         background: 'linear-gradient(160deg, #ffffff, #f1f5f9)',
         borderColor: 'rgba(0,0,0,0.15)',
-        animationDelay: delay,
-        animationFillMode: 'backwards',
-        transform: `rotate(${tilt}deg)`,
         boxShadow: '0 6px 14px rgba(0,0,0,0.35)',
+        ...dealStyle,
       }}
     >
       {/* Sol üst köşe indeksi (gerçek iskambil kartı gibi) */}
@@ -114,6 +130,11 @@ export default function BlackjackPage() {
   const [busy, setBusy] = useState(false)
 
   // Sayfa açıldığında yarım kalmış bir el var mı kontrol et (yenileme/çıkış koruması)
+  // NOT: bağımlılık `user` nesnesinin tamamı değil `user?.id`. Çünkü deal()/handleAction()
+  // her başarılı işlemden sonra refreshUser() çağırıyor ve bu her seferinde YENİ bir `user`
+  // nesnesi oluşturuyor - bağımlılık `user` olsaydı bu effect her "Dağıt" tıklamasından
+  // hemen sonra tekrar tetiklenir ve taze dağıtılan eli yanlışlıkla "yarım kalan el,
+  // devam ediyor" diye bildirirdi.
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -136,8 +157,8 @@ export default function BlackjackPage() {
     return () => {
       cancelled = true
     }
-  }, [user])
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   const deal = useCallback(async () => {
     if (!user) {
@@ -172,6 +193,7 @@ export default function BlackjackPage() {
         setOutcome(data.outcome)
         setPayout(data.payout)
         setStatus('done')
+        announceOutcome(data.outcome, data.payout)
       } else {
         setDealerHand([data.dealerUpcard])
         setDealerHidden(true)
@@ -215,6 +237,7 @@ export default function BlackjackPage() {
           setOutcome(data.outcome)
           setPayout(data.payout)
           setStatus('done')
+          announceOutcome(data.outcome, data.payout)
           await refreshUser()
         }
       } catch {
@@ -240,6 +263,13 @@ export default function BlackjackPage() {
   return (
     <GameGate gameType="blackjack">
     <div className="max-w-3xl mx-auto">
+      <style>{`
+        @keyframes bjDealFromShoe {
+          0% { transform: translate(170px, -130px) scale(0.5) rotate(20deg); opacity: 0; }
+          55% { opacity: 1; }
+          100% { transform: translate(0,0) scale(1) rotate(var(--bj-tilt, 0deg)); opacity: 1; }
+        }
+      `}</style>
       <PageHeader
         icon={Spade}
         title="Blackjack"
@@ -311,7 +341,7 @@ export default function BlackjackPage() {
             </span>
           </div>
 
-          {betAmount > 0 && status !== 'idle' && (
+          {betAmount > 0 && (
             <div className="relative flex justify-center mb-5">
               <div className="relative w-12 h-12">
                 {[0, 1].map((i) => (
@@ -366,21 +396,8 @@ export default function BlackjackPage() {
             </div>
           </div>
 
-          {/* Sonuç banner */}
-          {outcome && (
-            <div
-              className="relative text-center font-bold py-3 rounded-xl mb-5 animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-300 border"
-              style={{
-                backgroundColor: hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.15),
-                borderColor: hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.4),
-                color: OUTCOME_LABELS[outcome]?.color || '#fff',
-                boxShadow: `0 4px 20px ${hexToRgba(OUTCOME_LABELS[outcome]?.color || '#fff', 0.25)}`,
-              }}
-            >
-              {OUTCOME_LABELS[outcome]?.text}
-              {payout > 0 && ` (+${payout} puan)`}
-            </div>
-          )}
+          {/* Kazanma/kaybetme durumu artık masa üzerinde büyük bir yazı olarak değil,
+              alttaki kontrol panelinde küçük ve sade şekilde gösteriliyor. */}
 
           {/* Oyuncu eli */}
           <div className="relative mb-2">
@@ -406,38 +423,27 @@ export default function BlackjackPage() {
 
       {/* Kontroller */}
       <div
-        className="rounded-2xl border p-5 mt-5 space-y-4"
+        className="rounded-2xl border p-5 mt-5"
         style={{ backgroundColor: hexToRgba(theme.colors.card, 0.85), borderColor: hexToRgba(theme.colors.border, 0.5) }}
       >
         {status === 'idle' || status === 'done' ? (
-          <>
-            <div className="flex items-end gap-4">
-              <div className="flex-1">
-                <label className="text-xs font-semibold uppercase tracking-wide mb-2 block" style={{ color: theme.colors.textMuted }}>
-                  Bahis
-                </label>
-                <ThemedInput
-                  type="number"
-                  value={betAmount}
-                  onChange={(e) => setBetAmount(Math.max(0, Number(e.target.value)))}
-                  className="font-bold"
-                />
+          <div className="flex flex-col items-center gap-4">
+            {outcome && (
+              <div className="text-sm font-bold" style={{ color: OUTCOME_LABELS[outcome]?.color || theme.colors.text }}>
+                {OUTCOME_LABELS[outcome]?.text}
+                {payout > 0 && ` · +${payout} puan`}
               </div>
-              {user && (
-                <div className="text-right pb-2">
-                  <div className="text-xs flex items-center gap-1 justify-end" style={{ color: theme.colors.textMuted }}>
-                    <Wallet className="w-3 h-3" /> Bakiye
-                  </div>
-                  <div className="font-bold" style={{ color: theme.colors.text }}>
-                    {user.points.toLocaleString('tr-TR')}
-                  </div>
-                </div>
-              )}
-            </div>
-            <ThemedButton className="w-full" size="lg" disabled={busy} onClick={status === 'done' ? () => { newRound(); deal(); } : deal}>
+            )}
+            <ChipSelector value={betAmount} onChange={setBetAmount} max={user?.points} disabled={busy} />
+            <ThemedButton
+              className="w-full"
+              size="lg"
+              disabled={busy || betAmount <= 0}
+              onClick={status === 'done' ? () => { newRound(); deal(); } : deal}
+            >
               {busy ? 'Dağıtılıyor...' : status === 'done' ? 'Yeni El' : 'Dağıt'}
             </ThemedButton>
-          </>
+          </div>
         ) : (
           <div className="grid grid-cols-3 gap-3">
             <ThemedButton variant="secondary" disabled={busy} onClick={() => handleAction('hit')}>

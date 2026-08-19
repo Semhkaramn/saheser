@@ -165,7 +165,6 @@ async function finishRound(
 ) {
   let { playerHand, dealerHand, deck } = details
   const playerValue = handValue(playerHand)
-  const dealerValueInitial = handValue(dealerHand)
 
   let outcome: 'player_blackjack' | 'dealer_blackjack' | 'push' | 'player_bust' | 'dealer_bust' | 'player_win' | 'dealer_win'
 
@@ -237,10 +236,17 @@ async function loadPending(userId: string, gamePlayId: string) {
 
 export async function hitBlackjack(userId: string, gamePlayId: string) {
   const { gamePlay, details } = await loadPending(userId, gamePlayId)
+  const oldDetailsJson = gamePlay.details
   const card = drawCard(details)
   details.playerHand = [...details.playerHand, card]
 
-  await prisma.gamePlay.update({ where: { id: gamePlayId }, data: { details: JSON.stringify(details) } })
+  const cas = await prisma.gamePlay.updateMany({
+    where: { id: gamePlayId, result: 'pending', details: oldDetailsJson },
+    data: { details: JSON.stringify(details) },
+  })
+  if (cas.count === 0) {
+    throw new GameError('CONFLICT', 'Bu hamle işlenirken oyun durumu değişti, lütfen tekrar dene')
+  }
 
   const value = handValue(details.playerHand)
   if (value.total > 21) {
@@ -266,13 +272,27 @@ export async function standBlackjack(userId: string, gamePlayId: string) {
 export async function doubleBlackjack(userId: string, gamePlayId: string) {
   const { gamePlay, details } = await loadPending(userId, gamePlayId)
   if (details.playerHand.length !== 2) throw new GameError('CANNOT_DOUBLE', 'Sadece ilk 2 kartla double yapılabilir')
+  if (details.doubled) throw new GameError('ALREADY_DOUBLED', 'Bu el için double zaten yapıldı')
 
-  // Ek bahis miktarı kadar puan daha düş
+  const originalBet = gamePlay.betAmount
+
+  // Ek bahis miktarı kadar puan daha düş. Atomik CAS koruması: betAmount hâlâ okuduğumuz
+  // orijinal değerdeyse güncelle - aynı anda (ör. iki sekmeden) ikinci bir "double" isteği
+  // araya girmişse count=0 döner ve güvenle reddedilir; kullanıcının puanından fazladan
+  // düşülmesi engellenmiş olur.
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.user.findUnique({ where: { id: userId }, select: { points: true } })
-    if (!user || user.points < gamePlay.betAmount) throw new GameError('INSUFFICIENT_POINTS', 'Double için yetersiz puan')
-    await tx.user.update({ where: { id: userId }, data: { points: { decrement: gamePlay.betAmount } } })
-    await tx.gamePlay.update({ where: { id: gamePlayId }, data: { betAmount: gamePlay.betAmount * 2 } })
+    if (!user || user.points < originalBet) throw new GameError('INSUFFICIENT_POINTS', 'Double için yetersiz puan')
+
+    const cas = await tx.gamePlay.updateMany({
+      where: { id: gamePlayId, betAmount: originalBet, result: 'pending' },
+      data: { betAmount: originalBet * 2 },
+    })
+    if (cas.count === 0) {
+      throw new GameError('ALREADY_RESOLVED', 'Bu el için işlem zaten yapıldı')
+    }
+
+    await tx.user.update({ where: { id: userId }, data: { points: { decrement: originalBet } } })
   })
 
   const card = drawCard(details)
@@ -280,5 +300,5 @@ export async function doubleBlackjack(userId: string, gamePlayId: string) {
   details.doubled = true
   await prisma.gamePlay.update({ where: { id: gamePlayId }, data: { details: JSON.stringify(details) } })
 
-  return finishRound(gamePlayId, userId, details, gamePlay.betAmount * 2, 0)
+  return finishRound(gamePlayId, userId, details, originalBet * 2, 0)
 }
