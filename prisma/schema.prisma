@@ -1079,6 +1079,15 @@ model Randy {
   // Durum
   status                String          @default("draft") // "draft", "active", "ended"
   messageId             Int?            // Telegram mesaj ID'si (sabitleme için)
+  dmBroadcastSent       Boolean         @default(false) // "Randy başladı" DM bildirimi tüm üyelere gönderildi mi?
+  // ⚠️ Bu bildirim potansiyel olarak yüzlerce/binlerce kullanıcıya tek tek DM göndermeyi
+  // gerektirdiği için (Telegram hız limiti yüzünden aralarda bekleme ile) dakikalar
+  // sürebilir. Bunu admin'in "Başlat" isteğiyle AYNI HTTP request'te (senkron/await
+  // edilerek) yapmak isteğin zaman aşımına uğramasına, admin panelinin "hata" gösterip
+  // asıl işlemin arka planda tamamlanmış olmasına rağmen buton durumunun (Başlat/Sonlandır)
+  // güncel kalmamasına yol açıyordu. Artık startRandy() sadece bu alanı false bırakarak
+  // hemen dönüyor, ayrı bir zamanlanmış görev (randy-dm-broadcast) bu alanı tarayıp
+  // bildirimleri arka planda, kendi zaman bütçesiyle gönderiyor.
 
   // Katılımcılar ve Kazananlar
   participants          RandyParticipant[]

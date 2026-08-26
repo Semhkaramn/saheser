@@ -10,35 +10,37 @@
 
 import TelegramBot from 'node-telegram-bot-api'
 import { createHash, createHmac } from 'crypto'
-import { getCachedData, CacheTTL } from '../enhanced-cache'
+import { getCachedData, CacheTTL, enhancedCache } from '../enhanced-cache'
 import { getTelegramBotToken } from '../site-config'
 
 let bot: TelegramBot | null = null
 
 // 🚀 OPTIMIZATION: Admin cache sistemi
-// chatId:userId -> { isAdmin: boolean, timestamp: number }
-const adminCache = new Map<string, { isAdmin: boolean; timestamp: number }>()
-const ADMIN_CACHE_TTL = 300000 // 5 dakika (300 saniye)
+//
+// ÖNEMLİ (performans hatası düzeltmesi): Bu cache eskiden sadece process-içi
+// (in-memory) bir Map idi. Bu proje serverless (Netlify Functions) üzerinde
+// çalıştığı için, yoğun mesaj trafiğinde (ör. aktif bir "roll" oturumunda çok
+// sayıda kullanıcı art arda mesaj attığında) Telegram webhook'u AYNI ANDA
+// birden fazla ayrı fonksiyon örneğine (instance) yönlendirilebiliyor - her
+// birinin KENDİ AYRI belleği olduğu için bu cache neredeyse hiç isabet
+// almıyordu. Sonuç: roll aktifken gelen HER mesaj için gerçek bir Telegram
+// API çağrısı (getChatMember) yapılıyordu - bu hem gecikmeye hem de Telegram'ın
+// hız limitine takılmaya yol açarak "bot mesajlara yetişemiyor" hissi
+// yaratıyordu. Artık `getCachedData` üzerinden paylaşılan (Redis) katman
+// kullanılıyor - tüm fonksiyon örnekleri AYNI cache'i görüyor.
+const ADMIN_CACHE_TTL_SECONDS = 300 // 5 dakika
 
 /**
  * Admin cache'ini temizle (grup admin değişikliği olduğunda çağrılabilir)
  */
-export function invalidateAdminCache(chatId?: number, userId?: number): void {
+export async function invalidateAdminCache(chatId?: number, userId?: number): Promise<void> {
   if (chatId && userId) {
-    // Belirli bir kullanıcı için temizle
-    adminCache.delete(`${chatId}:${userId}`)
+    await enhancedCache.delete(`tg_admin:${chatId}:${userId}`)
   } else if (chatId) {
-    // Belirli bir grup için tüm cache'i temizle
-    const prefix = `${chatId}:`
-    for (const key of adminCache.keys()) {
-      if (key.startsWith(prefix)) {
-        adminCache.delete(key)
-      }
-    }
-  } else {
-    // Tüm cache'i temizle
-    adminCache.clear()
+    await enhancedCache.invalidateByTag(`tg_admin_chat:${chatId}`)
   }
+  // chatId hiç verilmezse (tüm cache) - bu senaryo şu an hiçbir yerden
+  // çağrılmıyor, gerekirse ayrıca bir "tüm admin cache" tag'i eklenebilir.
 }
 
 // 🚀 OPTIMIZED: Get bot token from ENV (no DB query, no cache needed)
@@ -357,48 +359,41 @@ export async function checkTelegramAdmin(
   chatId: number,
   userId: number
 ): Promise<boolean> {
-  const cacheKey = `${chatId}:${userId}`
-  const now = Date.now()
+  return getCachedData<boolean>(
+    `tg_admin:${chatId}:${userId}`,
+    async () => {
+      try {
+        const botToken = getTelegramBotToken()
+        if (!botToken) {
+          return false
+        }
 
-  // 🚀 Cache kontrolü
-  const cached = adminCache.get(cacheKey)
-  if (cached && now - cached.timestamp < ADMIN_CACHE_TTL) {
-    return cached.isAdmin
-  }
+        const url = `https://api.telegram.org/bot${botToken}/getChatMember`
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            user_id: userId
+          })
+        })
 
-  try {
-    const botToken = getTelegramBotToken()
+        const data = await response.json()
 
-    if (!botToken) {
-      return false
-    }
+        let isAdmin = false
+        if (data.ok) {
+          const status = data.result.status
+          isAdmin = status === 'creator' || status === 'administrator'
+        }
 
-    const url = `https://api.telegram.org/bot${botToken}/getChatMember`
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        user_id: userId
-      })
-    })
-
-    const data = await response.json()
-
-    let isAdmin = false
-    if (data.ok) {
-      const status = data.result.status
-      isAdmin = status === 'creator' || status === 'administrator'
-    }
-
-    // 🚀 Cache'e kaydet
-    adminCache.set(cacheKey, { isAdmin, timestamp: now })
-
-    return isAdmin
-  } catch (error) {
-    console.error('❌ Error checking admin status:', error)
-    return false
-  }
+        return isAdmin
+      } catch (error) {
+        console.error('❌ Error checking admin status:', error)
+        return false
+      }
+    },
+    { ttl: ADMIN_CACHE_TTL_SECONDS, tags: [`tg_admin_chat:${chatId}`] }
+  )
 }
 
 /**

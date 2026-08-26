@@ -34,14 +34,19 @@ const handler = schedule('0 21 * * *', async () => {
 
     console.log('🎡 Running wheel reset notification...')
 
-    // 8 second timeout for API call
+    // 25 second timeout for API call (önceden 8sn idi, çok kullanıcılı sitelerde
+    // her kullanıcı arası 50ms bekleme + gerçek Telegram API gecikmesi bu süreyi
+    // kolayca aşabiliyordu, bu da Netlify'ın fonksiyonu "asılı kaldı" sanıp tekrar
+    // tetiklemesine ve gece bildirimin iki kez gitmesine yol açabiliyordu). Asıl
+    // güvence artık endpoint'teki günlük kilit (idempotency lock), ama gereksiz
+    // zaman aşımlarını da azaltmak için süre uzatıldı.
     const response = await fetchWithTimeout(`${siteUrl}/api/admin/wheel/reset-notification`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${cronSecret}`,
         'Content-Type': 'application/json',
       },
-    }, 8000)
+    }, 25000)
 
     if (!response.ok) {
       const text = await response.text()

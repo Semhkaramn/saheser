@@ -53,9 +53,26 @@ async function resolveTelegramUserForRef(raw: string) {
   const groupUser = await prisma.telegramGroupUser.findFirst({
     where: telegramId ? { telegramId } : { username: { equals: username!, mode: 'insensitive' } },
   })
-  const resolvedTelegramId = groupUser?.telegramId || telegramId
+
+  let resolvedTelegramId = groupUser?.telegramId || telegramId
+
+  // ÖNEMLİ DÜZELTME: Eskiden kullanıcı adıyla arama SADECE grup mesaj geçmişi
+  // tablosunda (telegramGroupUser) yapılıyordu. Gruba hiç mesaj atmadan
+  // siteye üye olmuş (ör. reklam/başka bir kanaldan gelmiş) bir kullanıcının
+  // telegramGroupUser kaydı hiç olmayabilir - bu durumda arama SESSİZCE
+  // "kullanıcı bulunamadı" diyordu, oysa kişi sitede kayıtlıydı ve sponsor
+  // bilgisi zaten doğrudan site kullanıcısına (User) bağlı. Artık kullanıcı
+  // adıyla arandığında ve grup geçmişinde bulunamadığında, site kullanıcı
+  // tablosundaki telegramUsername alanından da deneniyor.
+  let siteUser: Awaited<ReturnType<typeof prisma.user.findUnique>> = null
+  if (resolvedTelegramId) {
+    siteUser = await prisma.user.findUnique({ where: { telegramId: resolvedTelegramId } })
+  } else if (username) {
+    siteUser = await prisma.user.findFirst({ where: { telegramUsername: { equals: username, mode: 'insensitive' } } })
+    if (siteUser?.telegramId) resolvedTelegramId = siteUser.telegramId
+  }
+
   if (!resolvedTelegramId) return null
-  const siteUser = await prisma.user.findUnique({ where: { telegramId: resolvedTelegramId } })
   return { siteUser, groupUser, resolvedTelegramId }
 }
 
@@ -533,6 +550,11 @@ async function buildClassicGiveawayConfigMessage(group: { groupId: string; title
   const hours = settings?.defaultDurationHours ?? 24
   const winnerCount = settings?.defaultWinnerCount ?? 1
   const points = settings?.defaultPrizePoints ?? 0
+  // ⚠️ Varsayılan olarak "bir kişi bir ödül" - yani aynı kullanıcı aynı
+  // çekilişte birden fazla kazanma anını kapamasın. Admin isterse bu
+  // limiti artırabilir ya da "Sınırsız" seçip tamamen kaldırabilir.
+  const maxWinsPerUser = settings?.maxWinsPerUser ?? 1
+  const maxWinsLabel = maxWinsPerUser && maxWinsPerUser > 0 ? `${maxWinsPerUser}` : 'Sınırsız'
 
   return {
     text: [
@@ -543,6 +565,7 @@ async function buildClassicGiveawayConfigMessage(group: { groupId: string; title
       `Süre: <b>${hours} saat</b>`,
       `Kazanan sayısı: <b>${winnerCount}</b>`,
       `Puan ödülü: <b>${points ? `${points} puan` : 'kapalı'}</b>`,
+      `Kişi başı maks. kazanç: <b>${maxWinsLabel}</b>`,
       '',
       'Bu ayarları bir kere yap - "Çekilişi Başlat" her tıklandığında baştan hiçbir şey sormadan bu ayarlarla anında yeni bir çekiliş açar.',
     ].filter(Boolean).join('\n'),
@@ -556,6 +579,7 @@ async function buildClassicGiveawayConfigMessage(group: { groupId: string; title
           { text: `🔢 Kazanan (${winnerCount})`, callback_data: `admgiveawaywin:${group.groupId}` },
           { text: `💰 Puan (${points ? `${points}` : 'kapalı'})`, callback_data: `admgiveawayptsmenu:${group.groupId}` },
         ],
+        [{ text: `👤 Kişi Başı Maks. (${maxWinsLabel})`, callback_data: `admgiveawaymaxwins:${group.groupId}` }],
         [{ text: '🎁 Çekilişi Başlat', callback_data: `admgiveawaystart:${group.groupId}` }],
         [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
       ],
@@ -665,7 +689,11 @@ async function finalizeClassicGiveaway(telegramId: string, chatId: number | stri
     prizePoints,
     durationHours: hours,
     winnerCount,
-    maxWinsPerUser: settings.maxWinsPerUser ?? undefined,
+    // Admin hiç dokunmadıysa (null) varsayılan olarak "bir kişi bir ödül"
+    // uygulanır - aynı kişinin aynı çekilişte tüm kazanma anlarını
+    // kapamasını önler. Admin bunu "Kişi Başı Maks." menüsünden
+    // artırabilir ya da 0 seçerek tamamen kaldırabilir.
+    maxWinsPerUser: settings.maxWinsPerUser ?? 1,
   })
 
   if (!result.ok) {
@@ -697,11 +725,17 @@ export async function getAdminGroupsForTelegramId(telegramId: string) {
   const sponsorGroupIds = new Set(sponsorApprovalGroups.map((s: { approvalGroupId: string | null }) => s.approvalGroupId))
   const visibleGroups = groups.filter((g: { groupId: string }) => !sponsorGroupIds.has(g.groupId))
 
-  const adminGroups: typeof groups = []
-  for (const g of visibleGroups) {
-    const isAdmin = await checkTelegramAdmin(Number(g.groupId), Number(telegramId))
-    if (isAdmin) adminGroups.push(g)
-  }
+  // 🚀 PERFORMANS: Admin kontrolleri artık paralel yapılıyor (Promise.all).
+  // Eskiden her grup için SIRAYLA (bir for döngüsünde await) kontrol
+  // ediliyordu - çok grup olan sitelerde (özellikle önbellek soğukken,
+  // ör. 5 dakikada bir) bu menüyü açmak birkaç saniye sürebiliyordu.
+  const adminChecks = await Promise.all(
+    visibleGroups.map(async (g: { groupId: string }) => ({
+      group: g,
+      isAdmin: await checkTelegramAdmin(Number(g.groupId), Number(telegramId)),
+    }))
+  )
+  const adminGroups = adminChecks.filter((c) => c.isAdmin).map((c) => c.group) as typeof groups
   return adminGroups
 }
 
@@ -760,6 +794,11 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
   }
 
   if (data === 'admrefmenu') {
+    // ÖNEMLİ: Bu ekrana "❌ İptal" ile de gelinebiliyor (Üye Sorgula ekranından).
+    // Bekleyen bir "metin girişi bekliyor" durumu varsa (mode) temizlenmezse,
+    // kullanıcı iptal etmiş olsa bile bir sonraki attığı mesaj yanlışlıkla
+    // arama sorgusu olarak işlenirdi.
+    await prisma.botAdminSession.updateMany({ where: { telegramId }, data: { mode: null, draftDataJson: null } })
     const adminGroups = await getAdminGroupsForTelegramId(telegramId)
     if (adminGroups.length === 0) {
       await answerCallbackQuery(query.id, '⛔ Bu özellik için en az bir grupta admin olman gerekiyor.', true)
@@ -785,6 +824,10 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
   }
 
   if (data.startsWith('admrefsponsors:')) {
+    // Bu ekrana "❌ İptal" (sponsor kimlik sorgusu ekranından) veya "⬅️ Sponsor
+    // Listesi" (sonuç ekranından) ile de gelinebiliyor - bekleyen bir mode
+    // varsa temizlenmezse sonraki mesaj yanlış yorumlanır (bkz. admrefmenu).
+    await prisma.botAdminSession.updateMany({ where: { telegramId }, data: { mode: null, draftDataJson: null } })
     const page = parseInt(data.replace('admrefsponsors:', ''), 10) || 0
     const { text, reply_markup } = await buildSponsorListMessage(page)
     await editTelegramMessage(chatId, messageId, text, reply_markup)
@@ -1628,6 +1671,23 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
+  if (data.startsWith('admgiveawaymaxwins:')) {
+    const groupId = data.replace('admgiveawaymaxwins:', '')
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_giveaway_max_wins', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_giveaway_max_wins', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(
+      chatId,
+      messageId,
+      '👤 Aynı kişi bu çekilişte en fazla kaç kez kazanabilsin? Sayı yaz (örn: 1 = kişi başı tek ödül). Sınır istemiyorsan 0 yaz.',
+      cancelKeyboard(groupId)
+    )
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
   if (data.startsWith('admgiveawayptsmenu:')) {
     const groupId = data.replace('admgiveawayptsmenu:', '')
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
@@ -1705,7 +1765,14 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
         chatId,
         messageId,
         '✍️ Bu Randy için duyuru mesajını yaz (emoji, kalın/italik yazı desteklenir):',
-        { inline_keyboard: [[{ text: '❌ İptal', callback_data: 'admcancel' }]] }
+        // 🐛 FIX: Bu buton eskiden düz 'admcancel' (iki nokta üst üste OLMADAN)
+        // kullanıyordu - ama handler sadece 'admcancel:' (grup ID'li) formatını
+        // yakalıyor. Yani bu İptal butonuna basmak HİÇBİR ŞEY yapmıyordu (callback
+        // hiç yanıtlanmadığı için Telegram'da buton sonsuza kadar "yükleniyor"
+        // gösterebiliyordu), VE bekleyen "mesaj yazmasını bekliyorum" durumu asla
+        // temizlenmiyordu - admin sıkışıp kalıyor, sonraki attığı alakasız bir
+        // mesaj bile yanlışlıkla Randy duyuru mesajı sanılabiliyordu.
+        { inline_keyboard: [[{ text: '❌ İptal', callback_data: `admcancel:${groupId}` }]] }
       )
       return true
     }
@@ -1720,7 +1787,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
         chatId,
         messageId,
         '🔢 Kazanan sayısını yaz (örn. 5):',
-        { inline_keyboard: [[{ text: '❌ İptal', callback_data: 'admcancel' }]] }
+        { inline_keyboard: [[{ text: '❌ İptal', callback_data: `admcancel:${groupId}` }]] }
       )
       return true
     }
@@ -1907,7 +1974,7 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
     if (!defaults?.winnerCount || defaults.winnerCount < 1) {
       // Mesaj tamam, sıra kazanan sayısında - aynı akışta devam
       await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: 'awaiting_randy_start_winner' } })
-      await updateMenu('🔢 Kazanan sayısını yaz (örn. 5):', { inline_keyboard: [[{ text: '❌ İptal', callback_data: 'admcancel' }]] })
+      await updateMenu('🔢 Kazanan sayısını yaz (örn. 5):', { inline_keyboard: [[{ text: '❌ İptal', callback_data: `admcancel:${session.groupId}` }]] })
       return true
     }
 
@@ -2164,6 +2231,30 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
     if (!session.groupId) return true
     cleanupIncomingMessage()
     await saveClassicGiveawaySettings(session.groupId, { defaultWinnerCount: winnerCount })
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
+    if (group && session.menuChatId && session.menuMessageId) {
+      const { text: menuText, reply_markup } = await buildClassicGiveawayConfigMessage(group)
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
+    }
+    return true
+  }
+
+  if (session.mode === 'awaiting_giveaway_max_wins') {
+    const maxWins = parseInt(text, 10)
+    if (Number.isNaN(maxWins) || maxWins < 0) {
+      await sendTelegramMessage(message.chat.id, '⚠️ Geçerli bir sayı yaz (örn: 1, sınırsız için 0)')
+      return true
+    }
+    if (!session.groupId) return true
+    cleanupIncomingMessage()
+    // ÖNEMLİ: 0 değeri "sınırsız" anlamında AYNEN saklanır (null'a çevrilmez).
+    // Çünkü null zaten "admin bu ayara hiç dokunmadı" anlamında kullanılıyor
+    // (bkz. finalizeClassicGiveaway'deki `?? 1` varsayılanı) - eğer admin
+    // burada bilinçli olarak "Sınırsız" seçtiğinde bu da null olarak
+    // saklansaydı, bir sonraki çekiliş açılışında "hiç ayarlanmamış" ile
+    // karışıp yanlışlıkla tekrar 1'e (bir kişi bir ödül) dönerdi.
+    await saveClassicGiveawaySettings(session.groupId, { maxWinsPerUser: maxWins })
     await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
     if (group && session.menuChatId && session.menuMessageId) {

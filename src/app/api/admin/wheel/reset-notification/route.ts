@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import { SiteConfig, getDynamicSettings } from '@/lib/site-config'
 import { sendTelegramMessage } from '@/lib/telegram/core'
 import { renderTemplateByKey } from '@/lib/message-templates'
+import { getTurkeyToday } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -18,6 +19,31 @@ export async function POST(req: NextRequest) {
         { error: 'Unauthorized' },
         { status: 401 }
       )
+    }
+
+    // 🔒 TEKRAR ÇALIŞMA KORUMASI (idempotency): Netlify'ın zamanlanmış fonksiyonları
+    // "en az bir kez çalıştırma" garantisi verir - yani aynı gece bu endpoint birden
+    // fazla kez tetiklenebilir (özellikle işlem uzun sürdüğünde). Bunu önlemek için,
+    // günün tarihine özel bir kilit anahtarı ATOMİK şekilde (unique constraint ile)
+    // oluşturulmaya çalışılır. Zaten varsa (bugün daha önce çalıştırılmışsa) bu satır
+    // hata fırlatır ve fonksiyon güvenle erken döner - kullanıcılara ikinci kez mesaj
+    // gitmez.
+    const todayStr = getTurkeyToday().toISOString().slice(0, 10) // YYYY-MM-DD
+    const lockKey = `wheel_reset_notification_lock_${todayStr}`
+    try {
+      await prisma.settings.create({
+        data: { key: lockKey, value: new Date().toISOString(), category: 'wheel_reset_lock' },
+      })
+    } catch {
+      console.log(`⚠️ Çark sıfırlama bildirimi bugün (${todayStr}) zaten gönderilmiş, atlanıyor`)
+      return NextResponse.json({
+        success: true,
+        message: 'Bugün için bildirim zaten gönderilmiş, tekrar gönderilmedi',
+        skipped: true,
+        totalUsers: 0,
+        successCount: 0,
+        errorCount: 0,
+      })
     }
 
     // 🚀 OPTIMIZATION: ENV'den ayarları al

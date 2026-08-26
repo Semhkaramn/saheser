@@ -146,17 +146,16 @@ export async function startRandy(randyId: string) {
 
   await invalidateRandyCache()
 
-  // 🎲 Randy başladığında botu başlatmış üyelere özelden haber ver, mesajın
-  // gerçek linkiyle birlikte - grubu takip etmiyorlarsa bile kaçırmasınlar.
-  // ⚠️ await ediyoruz: serverless ortamda await edilmeyen arka plan işleri
-  // güvenilir şekilde tamamlanmıyor (bkz. broadcast-service.ts'deki aynı
-  // ders) - Randy mesajı zaten grupta yayında, bu sadece bildirimi ekliyor.
-  try {
-    await notifyUsersOfRandyStart(chatId, message.message_id)
-  } catch (err) {
-    console.error('❌ Randy DM bildirimi hatası:', err)
-  }
-
+  // 🎲 Randy başladığında botu başlatmış üyelere özelden haber verilir - AMA bu artık
+  // burada (admin'in "Başlat" isteğiyle aynı HTTP request'te) SENKRON yapılmıyor.
+  // Sebep: yüzlerce/binlerce kullanıcıya tek tek DM göndermek (Telegram hız limiti
+  // yüzünden aralarda bekleme ile) dakikalar sürebiliyordu; bu da admin panelindeki
+  // isteğin zaman aşımına uğramasına, hatta arka planda işlem aslında başarıyla devam
+  // ederken/tamamlanırken admin'e "hata" gösterilip "Başlat" butonunun güncel durumu
+  // yansıtmamasına (ör. tekrar tıklanınca "zaten başlatılmış" hatası almasına) yol
+  // açıyordu. Artık `dmBroadcastSent: false` bırakılıyor - ayrı, zamanlanmış bir görev
+  // (bkz. /api/admin/randy/process-dm-broadcast) bunu arka planda, kendi zaman
+  // bütçesiyle gönderiyor. Admin paneline HEMEN "başlatıldı" cevabı dönüyor.
   return { success: true, randy: updated }
 }
 
@@ -192,6 +191,42 @@ async function notifyUsersOfRandyStart(chatId: string | number, messageId: numbe
     // Telegram hız limitini aşmamak için mesajlar arası kısa bekleme
     await new Promise((r) => setTimeout(r, 40))
   }
+}
+
+/**
+ * Aktif ama henüz "Randy başladı" DM bildirimi tüm üyelere gönderilmemiş
+ * Randy'leri bulur ve bildirimi arka planda gönderir. `startRandy()`'nin
+ * kendisi artık bunu SENKRON yapmıyor (bkz. yukarıdaki açıklama) - bunun
+ * yerine ayrı, zamanlanmış bir görev (netlify/functions/randy-dm-broadcast.ts)
+ * bu fonksiyonu periyodik olarak çağırıyor.
+ *
+ * Tek seferde EN FAZLA BİR Randy'nin bildirimini işler (normalde aynı anda
+ * birden fazla "bildirimi bekleyen" Randy olmaz, ama olursa bir sonraki
+ * çalıştırmada sıradaki işlenir) - bu, tek bir çalıştırmanın çok uzun
+ * sürüp platform zaman aşımına takılmasını önler.
+ */
+export async function processRandyDmBroadcast() {
+  const pending = await prisma.randy.findFirst({
+    where: { status: 'active', dmBroadcastSent: false, messageId: { not: null } },
+    orderBy: { startedAt: 'asc' },
+  })
+
+  if (!pending || !pending.messageId) {
+    return { processed: false, message: 'Bekleyen bildirim yok' }
+  }
+
+  try {
+    await notifyUsersOfRandyStart(pending.targetGroupId, pending.messageId)
+  } catch (err) {
+    console.error('❌ Randy DM bildirimi hatası:', err)
+    // Hata olsa bile tekrar tekrar denenip aynı kullanıcılara spam gitmesin diye
+    // yine de "gönderildi" işaretleniyor - kısmi başarısızlıklar zaten
+    // notifyUsersOfRandyStart içinde kullanıcı bazında sessizce yutuluyor.
+  }
+
+  await prisma.randy.update({ where: { id: pending.id }, data: { dmBroadcastSent: true } })
+
+  return { processed: true, randyId: pending.id, title: pending.title }
 }
 
 /**

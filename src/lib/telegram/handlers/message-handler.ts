@@ -242,8 +242,7 @@ async function checkAdminRandyEnd(message: any, chatType: string, userId: string
     isAdmin = String(chatId) === randy.targetGroupId
   } else if (userId) {
     // Normal grup/supergroup için admin kontrolü (userId olmalı)
-    const { checkTelegramAdmin } = await import('@/lib/telegram/core')
-    isAdmin = await checkTelegramAdmin(Number(chatId), Number(userId))
+    isAdmin = await checkTgAdmin(Number(chatId), Number(userId))
   }
 
   console.log(`👤 User ${userId || 'channel'} admin status: ${isAdmin} (chatType: ${chatType})`)
@@ -449,8 +448,14 @@ export async function handleMessage(message: any) {
           return NextResponse.json({ ok: true })
         }
 
-        const isAdmin = await checkTgAdmin(Number(chatId), Number(userId))
-        await trackActivityContestMessage(String(chatId), userId, message.from?.username || null, message.from?.first_name || null, messageText)
+        // 🚀 PERFORMANS: bkz. yukarıdaki aynı açıklama - bu üç işlem birbirinden
+        // bağımsız, paralel çalıştırmak Telegram'ın sıralı webhook teslimatında
+        // birikmeyi azaltır.
+        const [isAdmin] = await Promise.all([
+          checkTgAdmin(Number(chatId), Number(userId)),
+          trackActivityContestMessage(String(chatId), userId, message.from?.username || null, message.from?.first_name || null, messageText),
+          maybeSendGptReply(String(chatId), messageText, message),
+        ])
         const awarded = await checkAndAwardClassicWinner(
           String(chatId),
           userId,
@@ -474,12 +479,6 @@ export async function handleMessage(message: any) {
             await pinChatMessage(chatId, sent.message_id).catch(() => {})
           }
         }
-        // ⚠️ FIX: GPT cevabı eskiden "!isAdmin" şartının içindeydi - yani
-        // adminler (özelliği ayarlayıp test eden kişiler) tetikleyici
-        // kelimeyi yazsa bile bottan hiç cevap alamıyordu. "Admin kendi
-        // çekilişini kazanamaz" kuralı sadece yukarıdaki ödül mantığı için
-        // geçerli olmalıydı, GPT sohbetiyle alakası yok.
-        await maybeSendGptReply(String(chatId), messageText, message)
       }
     }
     return NextResponse.json({ ok: true })
@@ -522,8 +521,7 @@ export async function handleMessage(message: any) {
 
     if (!isBot) {
       // Admin kontrolü yap
-      const { checkTelegramAdmin } = await import('@/lib/telegram/core')
-      const isAdmin = await checkTelegramAdmin(chatId, Number(userId))
+      const isAdmin = await checkTgAdmin(chatId, Number(userId))
 
       if (!isAdmin) {
         // Bot değil ve admin değil - roll listesine ekle
@@ -537,9 +535,7 @@ export async function handleMessage(message: any) {
         )
       }
     }
-  }
-
-  // Randy sonrası mesaj tracking
+  }  // Randy sonrası mesaj tracking
   parallelTasks.push(
     trackRandyPostMessage(
       userId,
@@ -579,8 +575,22 @@ export async function handleMessage(message: any) {
   }
 
   // Klasik çekiliş / GPT sohbet - resmi aktivite grubunda da çalışabilir
-  const isAdminForExtras = await checkTgAdmin(Number(chatId), Number(userId))
-  await trackActivityContestMessage(String(chatId), userId, message.from?.username || null, message.from?.first_name || null, messageText)
+  //
+  // 🚀 PERFORMANS: Bu üç işlem birbirinden BAĞIMSIZ (hiçbiri diğerinin sonucunu
+  // kullanmıyor - checkAndAwardClassicWinner sadece isAdminForExtras'a ihtiyaç
+  // duyuyor, trackActivityContestMessage/maybeSendGptReply'nin sonucuna değil).
+  // Eskiden sırayla (await, await, await) çalıştırılıyordu - Telegram AYNI
+  // sohbetten gelen mesajları SIRAYLA teslim ettiği için (bir önceki mesajın
+  // webhook cevabını bekleyip SONRA bir sonrakini gönderiyor), her mesajdaki
+  // gereksiz sıralı bekleme, yoğun mesaj trafiğinde (ör. aktif "roll"
+  // oturumunda) doğrudan kuyruk birikmesine ve "liste" gibi admin komutlarının
+  // dakikalarca gecikmesine yol açıyordu. Paralel çalıştırmak bu üçünün toplam
+  // süresini ~3 ayrı bekleme yerine en yavaşı kadar bir bekleyişe indiriyor.
+  const [isAdminForExtras] = await Promise.all([
+    checkTgAdmin(Number(chatId), Number(userId)),
+    trackActivityContestMessage(String(chatId), userId, message.from?.username || null, message.from?.first_name || null, messageText),
+    maybeSendGptReply(String(chatId), messageText, message),
+  ])
   const awarded = await checkAndAwardClassicWinner(
     String(chatId),
     userId,
@@ -599,9 +609,6 @@ export async function handleMessage(message: any) {
       await pinChatMessage(chatId, sent.message_id).catch(() => {})
     }
   }
-  // ⚠️ FIX: Aynı hata burada da vardı - GPT cevabı admin olmayan şartına
-  // bağlıydı, adminler hiç cevap alamıyordu.
-  await maybeSendGptReply(String(chatId), messageText, message)
 
   return NextResponse.json({ ok: true })
 }
