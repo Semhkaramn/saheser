@@ -47,8 +47,8 @@ export async function setActivityContestOptions(
     topCount: number
     minCharCount: number
     minCharEnabled: boolean
-    minSentenceCount: number
-    minSentenceEnabled: boolean
+    minWordCount: number
+    minWordEnabled: boolean
   }>
 ) {
   return prisma.activityContestSettings.upsert({
@@ -59,8 +59,8 @@ export async function setActivityContestOptions(
       topCount: options.topCount ?? 20,
       minCharCount: options.minCharCount ?? 10,
       minCharEnabled: options.minCharEnabled ?? true,
-      minSentenceCount: options.minSentenceCount ?? 2,
-      minSentenceEnabled: options.minSentenceEnabled ?? false,
+      minWordCount: options.minWordCount ?? 3,
+      minWordEnabled: options.minWordEnabled ?? false,
     },
   })
 }
@@ -82,21 +82,20 @@ export async function startActivityContest(groupId: string, topCount?: number) {
 }
 
 /**
- * Bir metindeki cümle sayısını hesaplar. Cümle sonu noktalama işaretlerine
- * (. ! ? …) göre böler, boş parçaları saymaz. Noktalama hiç yoksa ve metin
- * doluysa 1 cümle kabul edilir.
+ * Bir metindeki kelime sayısını hesaplar. Boşluk karakterlerine (space, tab,
+ * newline vb.) göre böler, birden fazla ardışık boşluğu tek boşluk gibi
+ * sayar, boş parçaları saymaz.
  */
-export function countSentences(text: string): number {
+export function countWords(text: string): number {
   const trimmed = text.trim()
   if (!trimmed) return 0
-  const parts = trimmed.split(/[.!?…]+/).map((p) => p.trim()).filter(Boolean)
-  return parts.length > 0 ? parts.length : 1
+  return trimmed.split(/\s+/).filter(Boolean).length
 }
 
 /**
  * Yarışma açıkken her mesajda çağrılır (message-handler.ts içinden).
  * minCharEnabled açıksa mesaj minCharCount'tan kısa olamaz;
- * minSentenceEnabled açıksa mesaj minSentenceCount'tan az cümle içeremez.
+ * minWordEnabled açıksa mesaj minWordCount'tan az kelime içeremez.
  * İkisi de kapalıysa her mesaj sayılır.
  */
 export async function trackActivityContestMessage(groupId: string, telegramId: string, username: string | null, firstName: string | null, messageText: string) {
@@ -106,7 +105,7 @@ export async function trackActivityContestMessage(groupId: string, telegramId: s
   const text = messageText || ''
 
   if (settings.minCharEnabled && text.trim().length < settings.minCharCount) return
-  if (settings.minSentenceEnabled && countSentences(text) < settings.minSentenceCount) return
+  if (settings.minWordEnabled && countWords(text) < settings.minWordCount) return
 
   await prisma.activityContestParticipant.upsert({
     where: { groupId_telegramId: { groupId, telegramId } },

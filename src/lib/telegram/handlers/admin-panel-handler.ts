@@ -304,8 +304,8 @@ async function buildGptMenuMessage(group: { groupId: string; title: string | nul
 // iki alt menü linki), "Şartlar" (min karakter/cümle) ve "Ödüller" (kaç
 // kişiye ödül verilecek + sıra başına metin/puan).
 
-// Min cümle sayısı butona basınca bu liste içinde sırayla döner (2 → 3 → 4 → 5 → 2 ...)
-const ACTIVITY_MIN_SENTENCE_OPTIONS = [2, 3, 4, 5]
+// Min kelime sayısı butona basınca bu liste içinde sırayla döner (3 → 5 → 10 → 15 → 20 → 3 ...)
+const ACTIVITY_MIN_WORD_OPTIONS = [3, 5, 10, 15, 20]
 // Kaç kişiye ödül verileceğinin üst sınırı - liste çok uzamasın diye 10 ile sınırlı.
 const ACTIVITY_MAX_TOP_COUNT = 10
 
@@ -316,13 +316,13 @@ async function buildActivityMenuMessage(group: { groupId: string; title: string 
   const running = contest?.isRunning ?? false
   const minCharEnabled = contest?.minCharEnabled ?? true
   const minCharCount = contest?.minCharCount ?? 10
-  const minSentenceEnabled = contest?.minSentenceEnabled ?? false
-  const minSentenceCount = contest?.minSentenceCount ?? 2
+  const minWordEnabled = contest?.minWordEnabled ?? false
+  const minWordCount = contest?.minWordCount ?? 3
   const topCount = Math.min(contest?.topCount ?? 3, ACTIVITY_MAX_TOP_COUNT)
 
   const conditionParts: string[] = []
   if (minCharEnabled) conditionParts.push(`${minCharCount} karakter`)
-  if (minSentenceEnabled) conditionParts.push(`${minSentenceCount} cümle`)
+  if (minWordEnabled) conditionParts.push(`${minWordCount} kelime`)
   const conditionSummary = conditionParts.length > 0 ? `Min. ${conditionParts.join(' + ')}` : 'Şartsız (her mesaj sayılır)'
 
   return {
@@ -355,8 +355,8 @@ async function buildActivityConditionsMessage(group: { groupId: string; title: s
   const contest = await getActivityContestSettings(group.groupId)
   const minCharEnabled = contest?.minCharEnabled ?? true
   const minCharCount = contest?.minCharCount ?? 10
-  const minSentenceEnabled = contest?.minSentenceEnabled ?? false
-  const minSentenceCount = contest?.minSentenceCount ?? 2
+  const minWordEnabled = contest?.minWordEnabled ?? false
+  const minWordCount = contest?.minWordCount ?? 3
 
   return {
     text: [
@@ -365,7 +365,7 @@ async function buildActivityConditionsMessage(group: { groupId: string; title: s
       'Bir mesajın yarışmada sayılması için sağlaması gereken şartlar. İkisi de kapalıysa her mesaj sayılır.',
       '',
       `Min. karakter şartı: <b>${minCharEnabled ? `Açık (${minCharCount} karakter)` : 'Kapalı'}</b>`,
-      `Min. cümle şartı: <b>${minSentenceEnabled ? `Açık (${minSentenceCount} cümle)` : 'Kapalı'}</b>`,
+      `Min. kelime şartı: <b>${minWordEnabled ? `Açık (${minWordCount} kelime)` : 'Kapalı'}</b>`,
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
@@ -374,8 +374,8 @@ async function buildActivityConditionsMessage(group: { groupId: string; title: s
           { text: `✍️ Sayı (${minCharCount})`, callback_data: `admactivitycharval:${group.groupId}` },
         ],
         [
-          { text: `📝 Min Cümle: ${minSentenceEnabled ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admactivitysenton:${group.groupId}` },
-          { text: `🔢 Sayı (${minSentenceCount})`, callback_data: `admactivitysentval:${group.groupId}` },
+          { text: `📝 Min Kelime: ${minWordEnabled ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admactivitywordon:${group.groupId}` },
+          { text: `🔢 Sayı (${minWordCount})`, callback_data: `admactivitywordval:${group.groupId}` },
         ],
         [{ text: '⬅️ Geri', callback_data: `admactivitymenu:${group.groupId}` }],
       ],
@@ -1731,43 +1731,43 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
-  if (data.startsWith('admactivitysenton:')) {
-    const groupId = data.replace('admactivitysenton:', '')
+  if (data.startsWith('admactivitywordon:')) {
+    const groupId = data.replace('admactivitywordon:', '')
     const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
     if (!isAdmin) {
       await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
       return true
     }
     const current = await getActivityContestSettings(groupId)
-    const newEnabled = !(current?.minSentenceEnabled ?? false)
-    await setActivityContestOptions(groupId, { minSentenceEnabled: newEnabled })
+    const newEnabled = !(current?.minWordEnabled ?? false)
+    await setActivityContestOptions(groupId, { minWordEnabled: newEnabled })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
       const { text, reply_markup } = await buildActivityConditionsMessage(group)
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
-    await answerCallbackQuery(query.id, newEnabled ? '✅ Min cümle şartı açıldı.' : '❌ Min cümle şartı kapatıldı.')
+    await answerCallbackQuery(query.id, newEnabled ? '✅ Min kelime şartı açıldı.' : '❌ Min kelime şartı kapatıldı.')
     return true
   }
 
-  if (data.startsWith('admactivitysentval:')) {
-    const groupId = data.replace('admactivitysentval:', '')
+  if (data.startsWith('admactivitywordval:')) {
+    const groupId = data.replace('admactivitywordval:', '')
     const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
     if (!isAdmin) {
       await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
       return true
     }
     const current = await getActivityContestSettings(groupId)
-    const currentValue = current?.minSentenceCount ?? 2
-    const currentIndex = ACTIVITY_MIN_SENTENCE_OPTIONS.indexOf(currentValue)
-    const nextValue = ACTIVITY_MIN_SENTENCE_OPTIONS[(currentIndex + 1) % ACTIVITY_MIN_SENTENCE_OPTIONS.length]
-    await setActivityContestOptions(groupId, { minSentenceCount: nextValue })
+    const currentValue = current?.minWordCount ?? 3
+    const currentIndex = ACTIVITY_MIN_WORD_OPTIONS.indexOf(currentValue)
+    const nextValue = ACTIVITY_MIN_WORD_OPTIONS[(currentIndex + 1) % ACTIVITY_MIN_WORD_OPTIONS.length]
+    await setActivityContestOptions(groupId, { minWordCount: nextValue })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
       const { text, reply_markup } = await buildActivityConditionsMessage(group)
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
-    await answerCallbackQuery(query.id, `📝 Min cümle sayısı: ${nextValue}`)
+    await answerCallbackQuery(query.id, `📝 Min kelime sayısı: ${nextValue}`)
     return true
   }
 

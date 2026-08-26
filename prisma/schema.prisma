@@ -112,8 +112,8 @@ model ActivityContestSettings {
   topCount           Int       @default(3)
   minCharCount       Int       @default(10)
   minCharEnabled     Boolean   @default(true)
-  minSentenceCount   Int       @default(2)
-  minSentenceEnabled Boolean   @default(false)
+  minWordCount       Int       @default(3)
+  minWordEnabled     Boolean   @default(false)
   startedAt          DateTime?
   endedAt            DateTime?
   updatedAt          DateTime  @updatedAt

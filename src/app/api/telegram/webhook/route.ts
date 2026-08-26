@@ -294,7 +294,8 @@ export async function POST(request: NextRequest) {
       lowerText === '.inf' ||
       lowerText.startsWith('.inf ') ||
       lowerText === '!inf' ||
-      lowerText.startsWith('!inf ')
+      lowerText.startsWith('!inf ') ||
+      lowerText === '.aktiflik'
 
     if (isCommand) {
       // Komutlar: /start, /me, .me, !me, roll komutları, liste, /panel
