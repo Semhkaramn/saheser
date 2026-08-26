@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { sendTelegramMessage, pinChatMessage, checkTelegramAdmin } from '../core'
+import { sendTelegramMessage, pinChatMessage, checkTelegramAdmin, getGroupAdmins } from '../core'
 import { isBotSystemEnabled } from '../bot-system-check'
 
 // Manuel başlat/durdur ile çalışan aktiflik yarışması. Yarışma başladığı andan
@@ -125,11 +125,25 @@ export async function trackActivityContestMessage(groupId: string, telegramId: s
  */
 export async function getActivityContestLeaderboard(groupId: string) {
   const settings = await getActivityContestSettings(groupId)
-  const topUsers = await prisma.activityContestParticipant.findMany({
+  const topCount = settings?.topCount || 20
+
+  // ⚠️ Admin filtresi SORGUDAN SONRA uygulanıyor, bu yüzden "take" ile erken
+  // kesmiyoruz - yoksa ilk N kişiden bazıları admin çıkarsa, admin olmayan
+  // sıradaki kullanıcılar listeye hiç giremez. Önce geniş çekip filtreleyip
+  // sonra topCount'a kesiyoruz.
+  const allParticipants = await prisma.activityContestParticipant.findMany({
     where: { groupId },
     orderBy: { messageCount: 'desc' },
-    take: settings?.topCount || 20,
+    take: 200,
   })
+
+  const groupAdmins = await getGroupAdmins(groupId).catch(() => [])
+  const adminIds = new Set(groupAdmins.map((a) => String(a.userId)))
+
+  const topUsers = allParticipants
+    .filter((u) => !adminIds.has(u.telegramId))
+    .slice(0, topCount)
+
   const rewards = await getActivityRewards(groupId)
   const rewardMap = new Map(rewards.map((r) => [r.rank, r]))
 
@@ -182,11 +196,20 @@ export async function stopActivityContestAndAnnounce(groupId: string) {
   const settings = await getActivityContestSettings(groupId)
   if (!settings?.isRunning) return { ok: false as const, error: 'Çalışan bir yarışma yok' }
 
-  const topUsers = await prisma.activityContestParticipant.findMany({
+  // ⚠️ Aynı sebeple (bkz. getActivityContestLeaderboard) admin filtresini
+  // "take" ile kesmeden önce değil, geniş çekip filtreledikten sonra uyguluyoruz.
+  const allParticipants = await prisma.activityContestParticipant.findMany({
     where: { groupId },
     orderBy: { messageCount: 'desc' },
-    take: settings.topCount,
+    take: 200,
   })
+
+  const groupAdmins = await getGroupAdmins(groupId).catch(() => [])
+  const adminIds = new Set(groupAdmins.map((a) => String(a.userId)))
+
+  const topUsers = allParticipants
+    .filter((u) => !adminIds.has(u.telegramId))
+    .slice(0, settings.topCount)
 
   const rewards = await getActivityRewards(groupId)
   const rewardMap = new Map(rewards.map((r) => [r.rank, r]))
