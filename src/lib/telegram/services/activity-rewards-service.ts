@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { sendTelegramMessage, pinChatMessage } from '../core'
+import { sendTelegramMessage, pinChatMessage, checkTelegramAdmin } from '../core'
 import { isBotSystemEnabled } from '../bot-system-check'
 
 // Manuel başlat/durdur ile çalışan aktiflik yarışması. Yarışma başladığı andan
@@ -94,13 +94,18 @@ export function countWords(text: string): number {
 
 /**
  * Yarışma açıkken her mesajda çağrılır (message-handler.ts içinden).
+ * Adminlerin mesajları sayılmaz (checkTelegramAdmin ile kontrol edilir).
  * minCharEnabled açıksa mesaj minCharCount'tan kısa olamaz;
  * minWordEnabled açıksa mesaj minWordCount'tan az kelime içeremez.
- * İkisi de kapalıysa her mesaj sayılır.
+ * İkisi de kapalıysa (admin olmayan) her mesaj sayılır.
  */
 export async function trackActivityContestMessage(groupId: string, telegramId: string, username: string | null, firstName: string | null, messageText: string) {
   const settings = await getActivityContestSettings(groupId)
   if (!settings?.isRunning) return
+
+  // Adminler aktiflik yarışmasına dahil edilmez - mesajları sayılmaz.
+  const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+  if (isAdmin) return
 
   const text = messageText || ''
 
@@ -205,7 +210,7 @@ export async function stopActivityContestAndAnnounce(groupId: string) {
 
   const lines = ['🏆 <b>Aktiflik Yarışması Sonuçları</b>', '']
   topUsers.forEach((u, i) => {
-    const name = u.username ? `@${u.username}` : (u.firstName || u.telegramId)
+    const name = u.username ? `@${u.username}` : `<a href="tg://user?id=${u.telegramId}">${u.firstName || 'Kullanıcı'}</a>`
     const reward = rewardMap.get(i + 1)
     const rewardParts: string[] = []
     if (reward?.rewardText) rewardParts.push(reward.rewardText)

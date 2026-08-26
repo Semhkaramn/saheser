@@ -71,7 +71,9 @@ export async function handleCommand(message: any) {
         lines.push('Henüz veri yok.')
       } else {
         for (const row of status.leaderboard) {
-          const name = row.firstName || row.username || row.telegramId
+          const name = row.username
+            ? `@${row.username}`
+            : `<a href="tg://user?id=${row.telegramId}">${row.firstName || 'Kullanıcı'}</a>`
           const rewardParts: string[] = []
           if (row.reward) rewardParts.push(row.reward)
           if (row.pointsReward) rewardParts.push(`+${row.pointsReward} puan`)
