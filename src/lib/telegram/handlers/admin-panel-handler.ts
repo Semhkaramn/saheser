@@ -7,7 +7,7 @@ import { runTagging, stopTaggingRun, getTaggingRunStatus, getTaggingSettings, se
 import { isCrossBanEnabled, setCrossBanEnabled } from '../services/cross-ban-service'
 import { createClassicGiveaway, endClassicGiveaway, cancelClassicGiveaway, getActiveClassicGiveaway, getClassicGiveawayStatus, getClassicGiveawaySettings, saveClassicGiveawaySettings } from '../services/classic-giveaway-service'
 import { getGptSettings, setGptSettings } from '../services/gpt-service'
-import { getActivityContestSettings, startActivityContest, stopActivityContestAndAnnounce, getActivityRewards, setActivityReward, setActivityRewardPoints, setActivityContestOptions } from '../services/activity-rewards-service'
+import { getActivityContestSettings, startActivityContest, stopActivityContestAndAnnounce, getActivityRewards, setActivityReward, setActivityRewardPoints, clearActivityReward, setActivityContestOptions } from '../services/activity-rewards-service'
 import { getWeeklyRewardSettings, setWeeklyRewardSettings, getWeeklyRewards, setWeeklyReward } from '../services/weekly-rewards-service'
 import { listCrossBanChannels, addCrossBanChannel } from '../services/cross-ban-service'
 import {
@@ -298,14 +298,18 @@ async function buildGptMenuMessage(group: { groupId: string; title: string | nul
   }
 }
 
-// Aktiflik Yarışması alt menüsü - eskiden tek bir "Başlat/Bitir" butonuydu,
-// 1./2./3. sıraya ne verileceğini ayarlayacak yer yoktu (setActivityReward
-// arka planda vardı ama hiçbir buton çağırmıyordu). Artık min karakter / min
-// cümle şartları açma-kapamalı ve sıralara otomatik puan ödülü de
-// tanımlanabiliyor.
+// Aktiflik Yarışması menüleri - eskiden tek bir "Başlat/Bitir" butonuydu,
+// sonra tüm ayarlar (şartlar + 3 sıra x 2 buton) tek ekrana sığdırılınca çok
+// karışık oldu. Artık 3 ayrı ekrana bölündü: ana menü (durum + başlat/bitir +
+// iki alt menü linki), "Şartlar" (min karakter/cümle) ve "Ödüller" (kaç
+// kişiye ödül verilecek + sıra başına metin/puan).
 
 // Min cümle sayısı butona basınca bu liste içinde sırayla döner (2 → 3 → 4 → 5 → 2 ...)
 const ACTIVITY_MIN_SENTENCE_OPTIONS = [2, 3, 4, 5]
+// Kaç kişiye ödül verileceğinin üst sınırı - liste çok uzamasın diye 10 ile sınırlı.
+const ACTIVITY_MAX_TOP_COUNT = 10
+
+const activityMedalFor = (rank: number) => (rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`)
 
 async function buildActivityMenuMessage(group: { groupId: string; title: string | null }) {
   const contest = await getActivityContestSettings(group.groupId)
@@ -314,51 +318,127 @@ async function buildActivityMenuMessage(group: { groupId: string; title: string 
   const minCharCount = contest?.minCharCount ?? 10
   const minSentenceEnabled = contest?.minSentenceEnabled ?? false
   const minSentenceCount = contest?.minSentenceCount ?? 2
-  const rewards = await getActivityRewards(group.groupId)
-  const rewardMap = new Map(rewards.map((r: { rank: number; rewardText: string; pointsReward: number }) => [r.rank, r]))
+  const topCount = Math.min(contest?.topCount ?? 3, ACTIVITY_MAX_TOP_COUNT)
 
-  const medalFor = (rank: number) => (rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`)
-  const rewardRows = [1, 2, 3].flatMap((rank) => {
-    const current = rewardMap.get(rank)
-    const rewardLabel = current?.rewardText || 'ayarlanmadı'
-    const pointsLabel = current?.pointsReward ? `${current.pointsReward} puan` : 'yok'
-    return [
-      [{
-        text: `${medalFor(rank)} ${rank}. Sıra Ödülü: ${rewardLabel}`,
-        callback_data: `admactivityreward:${group.groupId}:${rank}`,
-      }],
-      [{
-        text: `${medalFor(rank)} ${rank}. Sıra Puan: ${pointsLabel}`,
-        callback_data: `admactivitypoints:${group.groupId}:${rank}`,
-      }],
-    ]
-  })
+  const conditionParts: string[] = []
+  if (minCharEnabled) conditionParts.push(`${minCharCount} karakter`)
+  if (minSentenceEnabled) conditionParts.push(`${minSentenceCount} cümle`)
+  const conditionSummary = conditionParts.length > 0 ? `Min. ${conditionParts.join(' + ')}` : 'Şartsız (her mesaj sayılır)'
 
   return {
     text: [
       `📈 <b>Aktiflik Yarışması — ${group.title || group.groupId}</b>`,
       '',
       `Durum: <b>${running ? 'Devam ediyor ✅' : 'Kapalı'}</b>`,
-      `Min. karakter şartı: <b>${minCharEnabled ? `Açık (${minCharCount} karakter)` : 'Kapalı'}</b>`,
-      `Min. cümle şartı: <b>${minSentenceEnabled ? `Açık (${minSentenceCount} cümle)` : 'Kapalı'}</b>`,
+      `Şart: <b>${conditionSummary}</b>`,
+      `Ödül verilecek kişi: <b>${topCount}</b>`,
       '',
       running
         ? 'Yarışma sürüyor - mesaj sayımı yapılıyor. Bitirince sonuçlar ve ödüller (varsa puanlar) otomatik duyurulur/eklenir.'
-        : 'Başlatmadan önce şartları ve ödülleri ayarlaman önerilir. Puan ödülü tanımlarsan, yarışma bitince kazananlara otomatik eklenir.',
+        : 'Başlatmadan önce şartları ve ödülleri ayarlaman önerilir.',
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
         [{ text: running ? '⏹️ Yarışmayı Bitir ve Duyur' : '▶️ Yarışmayı Başlat', callback_data: `admactivity:${group.groupId}` }],
         [
-          { text: `🔤 Min Karakter: ${minCharEnabled ? 'Açık' : 'Kapalı'}`, callback_data: `admactivitycharon:${group.groupId}` },
-          { text: `✍️ Karakter Sayısı (${minCharCount})`, callback_data: `admactivitycharval:${group.groupId}` },
+          { text: '⚙️ Şartlar', callback_data: `admactivitycond:${group.groupId}` },
+          { text: `🏆 Ödüller (${topCount})`, callback_data: `admactivityrewards:${group.groupId}` },
+        ],
+        [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
+      ],
+    },
+  }
+}
+
+// Şartlar alt menüsü - min karakter / min cümle açma-kapama ve değer seçimi.
+async function buildActivityConditionsMessage(group: { groupId: string; title: string | null }) {
+  const contest = await getActivityContestSettings(group.groupId)
+  const minCharEnabled = contest?.minCharEnabled ?? true
+  const minCharCount = contest?.minCharCount ?? 10
+  const minSentenceEnabled = contest?.minSentenceEnabled ?? false
+  const minSentenceCount = contest?.minSentenceCount ?? 2
+
+  return {
+    text: [
+      `⚙️ <b>Aktiflik Şartları — ${group.title || group.groupId}</b>`,
+      '',
+      'Bir mesajın yarışmada sayılması için sağlaması gereken şartlar. İkisi de kapalıysa her mesaj sayılır.',
+      '',
+      `Min. karakter şartı: <b>${minCharEnabled ? `Açık (${minCharCount} karakter)` : 'Kapalı'}</b>`,
+      `Min. cümle şartı: <b>${minSentenceEnabled ? `Açık (${minSentenceCount} cümle)` : 'Kapalı'}</b>`,
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: `🔤 Min Karakter: ${minCharEnabled ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admactivitycharon:${group.groupId}` },
+          { text: `✍️ Sayı (${minCharCount})`, callback_data: `admactivitycharval:${group.groupId}` },
         ],
         [
-          { text: `📝 Min Cümle: ${minSentenceEnabled ? 'Açık' : 'Kapalı'}`, callback_data: `admactivitysenton:${group.groupId}` },
-          { text: `🔢 Cümle Sayısı (${minSentenceCount})`, callback_data: `admactivitysentval:${group.groupId}` },
+          { text: `📝 Min Cümle: ${minSentenceEnabled ? 'Açık ✅' : 'Kapalı ❌'}`, callback_data: `admactivitysenton:${group.groupId}` },
+          { text: `🔢 Sayı (${minSentenceCount})`, callback_data: `admactivitysentval:${group.groupId}` },
         ],
-        ...rewardRows,
-        [{ text: '⬅️ Geri', callback_data: `admgrp:${group.groupId}` }],
+        [{ text: '⬅️ Geri', callback_data: `admactivitymenu:${group.groupId}` }],
+      ],
+    },
+  }
+}
+
+// Ödüller alt menüsü - kaç kişiye ödül verileceği + her sıra için tek satır
+// (o satıra basınca metin/puan girme ekranı açılıyor, ana menü kalabalıklaşmıyor).
+async function buildActivityRewardsMessage(group: { groupId: string; title: string | null }) {
+  const contest = await getActivityContestSettings(group.groupId)
+  const topCount = Math.min(contest?.topCount ?? 3, ACTIVITY_MAX_TOP_COUNT)
+  const rewards = await getActivityRewards(group.groupId)
+  const rewardMap = new Map(rewards.map((r: { rank: number; rewardText: string; pointsReward: number }) => [r.rank, r]))
+
+  const rankRows = Array.from({ length: topCount }, (_, i) => {
+    const rank = i + 1
+    const current = rewardMap.get(rank)
+    const parts: string[] = []
+    if (current?.rewardText) parts.push(current.rewardText)
+    if (current?.pointsReward) parts.push(`${current.pointsReward} puan`)
+    const label = parts.length > 0 ? parts.join(' · ') : 'ayarlanmadı'
+    return [{ text: `${activityMedalFor(rank)} ${rank}. Sıra: ${label}`, callback_data: `admactivityrankmenu:${group.groupId}:${rank}` }]
+  })
+
+  return {
+    text: [
+      `🏆 <b>Aktiflik Ödülleri — ${group.title || group.groupId}</b>`,
+      '',
+      `Ödül verilecek kişi sayısı: <b>${topCount}</b> (en fazla ${ACTIVITY_MAX_TOP_COUNT})`,
+      '',
+      'Puan tanımlarsan, yarışma bitince sitesine bağlı kazananlara otomatik eklenir. Metin ise sadece duyuruda görünür.',
+      '',
+      'Bir sıraya dokunarak ödülünü (metin ve/veya puan) ayarlayabilirsin.',
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: `🔢 Kaç Kişi (${topCount})`, callback_data: `admactivitytopcount:${group.groupId}` }],
+        ...rankRows,
+        [{ text: '⬅️ Geri', callback_data: `admactivitymenu:${group.groupId}` }],
+      ],
+    },
+  }
+}
+
+// Tek bir sıranın ödül düzenleme ekranı.
+async function buildActivityRewardRankMessage(group: { groupId: string; title: string | null }, rank: number) {
+  const rewards = await getActivityRewards(group.groupId)
+  const current = rewards.find((r: { rank: number; rewardText: string; pointsReward: number }) => r.rank === rank)
+
+  return {
+    text: [
+      `${activityMedalFor(rank)} <b>${rank}. Sıra Ödülü — ${group.title || group.groupId}</b>`,
+      '',
+      `Ödül metni: <b>${current?.rewardText || 'ayarlanmadı'}</b>`,
+      `Otomatik puan: <b>${current?.pointsReward ? `${current.pointsReward} puan` : 'yok'}</b>`,
+    ].join('\n'),
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✍️ Metin Yaz', callback_data: `admactivityreward:${group.groupId}:${rank}` }],
+        [{ text: '🔢 Puan Yaz', callback_data: `admactivitypoints:${group.groupId}:${rank}` }],
+        [{ text: '🗑️ Sıfırla', callback_data: `admactivityrankclear:${group.groupId}:${rank}` }],
+        [{ text: '⬅️ Geri', callback_data: `admactivityrewards:${group.groupId}` }],
       ],
     },
   }
@@ -1492,6 +1572,95 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     return true
   }
 
+  if (data.startsWith('admactivitycond:')) {
+    const groupId = data.replace('admactivitycond:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (!group) {
+      await answerCallbackQuery(query.id, '⛔ Grup bulunamadı.', true)
+      return true
+    }
+    const { text, reply_markup } = await buildActivityConditionsMessage(group)
+    await editTelegramMessage(chatId, messageId, text, reply_markup)
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admactivityrewards:')) {
+    const groupId = data.replace('admactivityrewards:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (!group) {
+      await answerCallbackQuery(query.id, '⛔ Grup bulunamadı.', true)
+      return true
+    }
+    const { text, reply_markup } = await buildActivityRewardsMessage(group)
+    await editTelegramMessage(chatId, messageId, text, reply_markup)
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admactivitytopcount:')) {
+    const groupId = data.replace('admactivitytopcount:', '')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    await prisma.botAdminSession.upsert({
+      where: { telegramId },
+      update: { mode: 'awaiting_activity_top_count', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+      create: { telegramId, mode: 'awaiting_activity_top_count', groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
+    })
+    await editTelegramMessage(chatId, messageId, `✍️ Kaç kişiye ödül verilecek? Sadece sayı yaz (en fazla ${ACTIVITY_MAX_TOP_COUNT}):`, cancelKeyboard(groupId))
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admactivityrankmenu:')) {
+    const [, groupId, rankStr] = data.split(':')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (!group) {
+      await answerCallbackQuery(query.id, '⛔ Grup bulunamadı.', true)
+      return true
+    }
+    const { text, reply_markup } = await buildActivityRewardRankMessage(group, parseInt(rankStr, 10))
+    await editTelegramMessage(chatId, messageId, text, reply_markup)
+    await answerCallbackQuery(query.id)
+    return true
+  }
+
+  if (data.startsWith('admactivityrankclear:')) {
+    const [, groupId, rankStr] = data.split(':')
+    const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
+    if (!isAdmin) {
+      await answerCallbackQuery(query.id, '⛔ Bu grup için yetkin yok.', true)
+      return true
+    }
+    const rank = parseInt(rankStr, 10)
+    await clearActivityReward(groupId, rank)
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
+    if (group) {
+      const { text, reply_markup } = await buildActivityRewardRankMessage(group, rank)
+      await editTelegramMessage(chatId, messageId, text, reply_markup)
+    }
+    await answerCallbackQuery(query.id, '🗑️ Sıfırlandı.')
+    return true
+  }
+
   if (data.startsWith('admactivityreward:')) {
     const [, groupId, rankStr] = data.split(':')
     const isAdmin = await checkTelegramAdmin(Number(groupId), Number(telegramId))
@@ -1504,7 +1673,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
       update: { mode: `awaiting_activity_reward:${rankStr}`, groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
       create: { telegramId, mode: `awaiting_activity_reward:${rankStr}`, groupId, menuChatId: String(chatId), menuMessageId: String(messageId) },
     })
-    await editTelegramMessage(chatId, messageId, `✍️ ${rankStr}. sıraya verilecek ödülü yaz (örn. "300 puan"):`, cancelKeyboard(groupId))
+    await editTelegramMessage(chatId, messageId, `✍️ ${rankStr}. sıraya verilecek ödül metnini yaz (örn. "1 Ay VIP"):`, cancelKeyboard(groupId))
     await answerCallbackQuery(query.id)
     return true
   }
@@ -1538,7 +1707,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     await setActivityContestOptions(groupId, { minCharEnabled: newEnabled })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
-      const { text, reply_markup } = await buildActivityMenuMessage(group)
+      const { text, reply_markup } = await buildActivityConditionsMessage(group)
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
     await answerCallbackQuery(query.id, newEnabled ? '✅ Min karakter şartı açıldı.' : '❌ Min karakter şartı kapatıldı.')
@@ -1574,7 +1743,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     await setActivityContestOptions(groupId, { minSentenceEnabled: newEnabled })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
-      const { text, reply_markup } = await buildActivityMenuMessage(group)
+      const { text, reply_markup } = await buildActivityConditionsMessage(group)
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
     await answerCallbackQuery(query.id, newEnabled ? '✅ Min cümle şartı açıldı.' : '❌ Min cümle şartı kapatıldı.')
@@ -1595,7 +1764,7 @@ export async function handleAdminPanelCallback(query: any): Promise<boolean> {
     await setActivityContestOptions(groupId, { minSentenceCount: nextValue })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId } })
     if (group) {
-      const { text, reply_markup } = await buildActivityMenuMessage(group)
+      const { text, reply_markup } = await buildActivityConditionsMessage(group)
       await editTelegramMessage(chatId, messageId, text, reply_markup)
     }
     await answerCallbackQuery(query.id, `📝 Min cümle sayısı: ${nextValue}`)
@@ -2034,7 +2203,7 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
     await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
     if (group && session.menuChatId && session.menuMessageId) {
-      const { text: menuText, reply_markup } = await buildActivityMenuMessage(group)
+      const { text: menuText, reply_markup } = await buildActivityRewardRankMessage(group, rank)
       await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
     }
     return true
@@ -2053,7 +2222,7 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
     await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
     if (group && session.menuChatId && session.menuMessageId) {
-      const { text: menuText, reply_markup } = await buildActivityMenuMessage(group)
+      const { text: menuText, reply_markup } = await buildActivityRewardRankMessage(group, rank)
       await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
     }
     return true
@@ -2071,7 +2240,25 @@ export async function handlePendingAdminMessage(message: any): Promise<boolean> 
     await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
     const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
     if (group && session.menuChatId && session.menuMessageId) {
-      const { text: menuText, reply_markup } = await buildActivityMenuMessage(group)
+      const { text: menuText, reply_markup } = await buildActivityConditionsMessage(group)
+      await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
+    }
+    return true
+  }
+
+  if (session.mode === 'awaiting_activity_top_count') {
+    if (!session.groupId) return true
+    const count = parseInt(text.trim(), 10)
+    if (Number.isNaN(count) || count < 1 || count > ACTIVITY_MAX_TOP_COUNT) {
+      await sendTelegramMessage(message.chat.id, `⚠️ 1 ile ${ACTIVITY_MAX_TOP_COUNT} arasında bir sayı yaz.`)
+      return true
+    }
+    cleanupIncomingMessage()
+    await setActivityContestOptions(session.groupId, { topCount: count })
+    await prisma.botAdminSession.update({ where: { telegramId }, data: { mode: null } })
+    const group = await prisma.telegramGroup.findUnique({ where: { groupId: session.groupId } })
+    if (group && session.menuChatId && session.menuMessageId) {
+      const { text: menuText, reply_markup } = await buildActivityRewardsMessage(group)
       await editTelegramMessage(session.menuChatId, Number(session.menuMessageId), menuText, reply_markup)
     }
     return true

@@ -109,7 +109,7 @@ model ActivityContestSettings {
   id                 String    @id @default(cuid())
   groupId            String    @unique
   isRunning          Boolean   @default(false)
-  topCount           Int       @default(20)
+  topCount           Int       @default(3)
   minCharCount       Int       @default(10)
   minCharEnabled     Boolean   @default(true)
   minSentenceCount   Int       @default(2)

@@ -32,6 +32,10 @@ export async function setActivityRewardPoints(groupId: string, rank: number, poi
   })
 }
 
+export async function clearActivityReward(groupId: string, rank: number) {
+  await prisma.activityContestReward.deleteMany({ where: { groupId, rank } })
+}
+
 /**
  * Yarışma başlamadan/başlarken min karakter, min cümle gibi ayarları
  * güncellemek için. Kısmi güncelleme yapılabilir (sadece verilen alanlar
