@@ -106,21 +106,25 @@ model ClassicGiveawayUserWin {
 
 // ========== AKTİFLİK ÖDÜLLERİ (manuel başlat/durdur yarışması) ==========
 model ActivityContestSettings {
-  id           String    @id @default(cuid())
-  groupId      String    @unique
-  isRunning    Boolean   @default(false)
-  topCount     Int       @default(20)
-  minCharCount Int       @default(10)
-  startedAt    DateTime?
-  endedAt      DateTime?
-  updatedAt    DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  groupId            String    @unique
+  isRunning          Boolean   @default(false)
+  topCount           Int       @default(20)
+  minCharCount       Int       @default(10)
+  minCharEnabled     Boolean   @default(true)
+  minSentenceCount   Int       @default(2)
+  minSentenceEnabled Boolean   @default(false)
+  startedAt          DateTime?
+  endedAt            DateTime?
+  updatedAt          DateTime  @updatedAt
 }
 
 model ActivityContestReward {
-  id         String   @id @default(cuid())
-  groupId    String
-  rank       Int
-  rewardText String
+  id           String   @id @default(cuid())
+  groupId      String
+  rank         Int
+  rewardText   String
+  pointsReward Int      @default(0) // Otomatik verilecek puan (0 = puan yok, sadece rewardText duyurulur)
 
   @@unique([groupId, rank])
 }

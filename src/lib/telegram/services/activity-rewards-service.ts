@@ -3,8 +3,10 @@ import { sendTelegramMessage, pinChatMessage } from '../core'
 import { isBotSystemEnabled } from '../bot-system-check'
 
 // Manuel başlat/durdur ile çalışan aktiflik yarışması. Yarışma başladığı andan
-// itibaren gruptaki her mesaj ActivityContestParticipant'ta sayılır; "Bitir"
-// dendiğinde en aktif N kişi, tanımlı ödül metinleriyle birlikte duyurulur.
+// itibaren gruptaki her mesaj (ayarlanan min karakter / min cümle şartlarını
+// geçerse) ActivityContestParticipant'ta sayılır; "Bitir" dendiğinde en aktif
+// N kişi, tanımlı ödül metinleriyle (ve varsa otomatik puanla) birlikte
+// duyurulur.
 
 export async function getActivityContestSettings(groupId: string) {
   return prisma.activityContestSettings.findUnique({ where: { groupId } })
@@ -22,7 +24,44 @@ export async function setActivityReward(groupId: string, rank: number, rewardTex
   })
 }
 
-export async function startActivityContest(groupId: string, topCount = 20, minCharCount = 10) {
+export async function setActivityRewardPoints(groupId: string, rank: number, pointsReward: number) {
+  return prisma.activityContestReward.upsert({
+    where: { groupId_rank: { groupId, rank } },
+    update: { pointsReward },
+    create: { groupId, rank, rewardText: '', pointsReward },
+  })
+}
+
+/**
+ * Yarışma başlamadan/başlarken min karakter, min cümle gibi ayarları
+ * güncellemek için. Kısmi güncelleme yapılabilir (sadece verilen alanlar
+ * değişir).
+ */
+export async function setActivityContestOptions(
+  groupId: string,
+  options: Partial<{
+    topCount: number
+    minCharCount: number
+    minCharEnabled: boolean
+    minSentenceCount: number
+    minSentenceEnabled: boolean
+  }>
+) {
+  return prisma.activityContestSettings.upsert({
+    where: { groupId },
+    update: options,
+    create: {
+      groupId,
+      topCount: options.topCount ?? 20,
+      minCharCount: options.minCharCount ?? 10,
+      minCharEnabled: options.minCharEnabled ?? true,
+      minSentenceCount: options.minSentenceCount ?? 2,
+      minSentenceEnabled: options.minSentenceEnabled ?? false,
+    },
+  })
+}
+
+export async function startActivityContest(groupId: string, topCount?: number) {
   if (!(await isBotSystemEnabled('activity_rewards'))) return { ok: false as const, error: 'Aktiflik ödülleri sistemi kapalı' }
 
   const existing = await getActivityContestSettings(groupId)
@@ -31,20 +70,39 @@ export async function startActivityContest(groupId: string, topCount = 20, minCh
   await prisma.activityContestParticipant.deleteMany({ where: { groupId } })
   await prisma.activityContestSettings.upsert({
     where: { groupId },
-    update: { isRunning: true, topCount, minCharCount, startedAt: new Date(), endedAt: null },
-    create: { groupId, isRunning: true, topCount, minCharCount, startedAt: new Date() },
+    update: { isRunning: true, topCount: topCount ?? existing?.topCount ?? 20, startedAt: new Date(), endedAt: null },
+    create: { groupId, isRunning: true, topCount: topCount ?? 20, startedAt: new Date() },
   })
 
   return { ok: true as const }
 }
 
 /**
+ * Bir metindeki cümle sayısını hesaplar. Cümle sonu noktalama işaretlerine
+ * (. ! ? …) göre böler, boş parçaları saymaz. Noktalama hiç yoksa ve metin
+ * doluysa 1 cümle kabul edilir.
+ */
+export function countSentences(text: string): number {
+  const trimmed = text.trim()
+  if (!trimmed) return 0
+  const parts = trimmed.split(/[.!?…]+/).map((p) => p.trim()).filter(Boolean)
+  return parts.length > 0 ? parts.length : 1
+}
+
+/**
  * Yarışma açıkken her mesajda çağrılır (message-handler.ts içinden).
+ * minCharEnabled açıksa mesaj minCharCount'tan kısa olamaz;
+ * minSentenceEnabled açıksa mesaj minSentenceCount'tan az cümle içeremez.
+ * İkisi de kapalıysa her mesaj sayılır.
  */
 export async function trackActivityContestMessage(groupId: string, telegramId: string, username: string | null, firstName: string | null, messageText: string) {
   const settings = await getActivityContestSettings(groupId)
   if (!settings?.isRunning) return
-  if (!messageText || messageText.trim().length < settings.minCharCount) return
+
+  const text = messageText || ''
+
+  if (settings.minCharEnabled && text.trim().length < settings.minCharCount) return
+  if (settings.minSentenceEnabled && countSentences(text) < settings.minSentenceCount) return
 
   await prisma.activityContestParticipant.upsert({
     where: { groupId_telegramId: { groupId, telegramId } },
@@ -65,7 +123,7 @@ export async function getActivityContestLeaderboard(groupId: string) {
     take: settings?.topCount || 20,
   })
   const rewards = await getActivityRewards(groupId)
-  const rewardMap = new Map(rewards.map((r) => [r.rank, r.rewardText]))
+  const rewardMap = new Map(rewards.map((r) => [r.rank, r]))
 
   return {
     isRunning: settings?.isRunning ?? false,
@@ -77,9 +135,39 @@ export async function getActivityContestLeaderboard(groupId: string) {
       username: u.username,
       firstName: u.firstName,
       messageCount: u.messageCount,
-      reward: rewardMap.get(i + 1) || null,
+      reward: rewardMap.get(i + 1)?.rewardText || null,
+      pointsReward: rewardMap.get(i + 1)?.pointsReward || 0,
     })),
   }
+}
+
+/**
+ * Kazanan bir kullanıcıya, bağlı site hesabı varsa, otomatik puan ekler.
+ * Bağlı hesap yoksa sessizce atlanır (puan kaybolmaz, sadece verilemez).
+ */
+async function awardPointsToTelegramUser(telegramId: string, points: number, rank: number, groupId: string) {
+  if (points <= 0) return
+
+  const tgUser = await prisma.telegramGroupUser.findUnique({
+    where: { telegramId },
+    select: { linkedUserId: true },
+  })
+  if (!tgUser?.linkedUserId) return
+
+  await prisma.user.update({
+    where: { id: tgUser.linkedUserId },
+    data: { points: { increment: points } },
+  })
+
+  await prisma.pointHistory.create({
+    data: {
+      userId: tgUser.linkedUserId,
+      amount: points,
+      type: 'activity_contest',
+      description: `Aktiflik yarışması ${rank}. sıra ödülü`,
+      relatedId: groupId,
+    },
+  })
 }
 
 export async function stopActivityContestAndAnnounce(groupId: string) {
@@ -93,7 +181,7 @@ export async function stopActivityContestAndAnnounce(groupId: string) {
   })
 
   const rewards = await getActivityRewards(groupId)
-  const rewardMap = new Map(rewards.map((r) => [r.rank, r.rewardText]))
+  const rewardMap = new Map(rewards.map((r) => [r.rank, r]))
 
   await prisma.activityContestSettings.update({ where: { groupId }, data: { isRunning: false, endedAt: new Date() } })
 
@@ -101,11 +189,26 @@ export async function stopActivityContestAndAnnounce(groupId: string) {
     return { ok: true as const, message: null }
   }
 
+  // Otomatik puan ödülleri - duyurudan önce, sırayla eklenir.
+  await Promise.all(
+    topUsers.map((u, i) => {
+      const reward = rewardMap.get(i + 1)
+      if (!reward?.pointsReward) return Promise.resolve()
+      return awardPointsToTelegramUser(u.telegramId, reward.pointsReward, i + 1, groupId).catch((err) =>
+        console.error('Aktiflik yarışması puan ödülü hatası:', err)
+      )
+    })
+  )
+
   const lines = ['🏆 <b>Aktiflik Yarışması Sonuçları</b>', '']
   topUsers.forEach((u, i) => {
     const name = u.username ? `@${u.username}` : (u.firstName || u.telegramId)
     const reward = rewardMap.get(i + 1)
-    lines.push(`${i + 1}. ${name} — ${u.messageCount} mesaj${reward ? ` → 🎁 ${reward}` : ''}`)
+    const rewardParts: string[] = []
+    if (reward?.rewardText) rewardParts.push(reward.rewardText)
+    if (reward?.pointsReward) rewardParts.push(`+${reward.pointsReward} puan`)
+    const rewardText = rewardParts.length > 0 ? ` → 🎁 ${rewardParts.join(' + ')}` : ''
+    lines.push(`${i + 1}. ${name} — ${u.messageCount} mesaj${rewardText}`)
   })
 
   const text = lines.join('\n')

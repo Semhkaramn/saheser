@@ -72,7 +72,10 @@ export async function handleCommand(message: any) {
       } else {
         for (const row of status.leaderboard) {
           const name = row.firstName || row.username || row.telegramId
-          const rewardText = row.reward ? ` — 🎁 ${row.reward}` : ''
+          const rewardParts: string[] = []
+          if (row.reward) rewardParts.push(row.reward)
+          if (row.pointsReward) rewardParts.push(`+${row.pointsReward} puan`)
+          const rewardText = rewardParts.length > 0 ? ` — 🎁 ${rewardParts.join(' + ')}` : ''
           lines.push(`${row.rank}. ${name} — ${row.messageCount} mesaj${rewardText}`)
         }
       }
